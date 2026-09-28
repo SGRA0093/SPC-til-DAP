@@ -4,9 +4,10 @@ import type { settingsValueType } from "../settings";
 import type derivedSettingsClass from "../Classes/derivedSettingsClass";
 import isNullOrUndefined from "./isNullOrUndefined";
 import valueFormatter from "./valueFormatter";
-import type { summaryTableRowData } from "../Classes/viewModelClass";
+import chartTypeLabel from "./chartTypeLabel";
+import targetOperator from "./targetOperator";
+import type { summaryTableRowData, groupStatsObject } from "../Classes/viewModelClass";
 
-type LinesKeys = keyof settingsValueType["lines"];
 
 /**
  * Builds the tooltip data for a specific index in the chart.
@@ -24,10 +25,9 @@ type LinesKeys = keyof settingsValueType["lines"];
 export default function buildTooltip(table_row: summaryTableRowData,
                                       inputTooltips: powerbi.extensibility.VisualTooltipDataItem[] | undefined,
                                       inputSettings: settingsValueType,
-                                      derivedSettings: derivedSettingsClass): VisualTooltipDataItem[] {
+                                      derivedSettings: derivedSettingsClass,
+                                      spc_stats?: groupStatsObject): VisualTooltipDataItem[] {
 
-  const ast_limit: string = inputSettings.outliers.astronomical_limit;
-  const two_in_three_limit: string = inputSettings.outliers.two_in_three_limit;
   const formatValues = valueFormatter(inputSettings, derivedSettings);
 
   const tooltip: VisualTooltipDataItem[] = new Array<VisualTooltipDataItem>();
@@ -57,34 +57,11 @@ export default function buildTooltip(table_row: summaryTableRowData,
       value: formatValues(table_row.denominator, "integer")
     })
   }
-  if (inputSettings.lines.ttip_show_trend && inputSettings.lines.show_trend) {
+  if (derivedSettings.chart_type_props.has_control_limits
+      && inputSettings.lines.ttip_show_99 && inputSettings.lines.show_99) {
     tooltip.push({
-      displayName: inputSettings.lines.ttip_label_trend,
-      value: formatValues(table_row.trend_line, "value")
-    })
-  }
-  if (inputSettings.lines.show_specification && inputSettings.lines.ttip_show_specification) {
-    if (!isNullOrUndefined(table_row.speclimits_upper)) {
-      tooltip.push({
-        displayName: `Upper ${inputSettings.lines.ttip_label_specification}`,
-        value: formatValues(table_row.speclimits_upper, "value")
-      })
-    }
-    if (!isNullOrUndefined(table_row.speclimits_lower)) {
-      tooltip.push({
-        displayName: `Lower ${inputSettings.lines.ttip_label_specification}`,
-        value: formatValues(table_row.speclimits_lower, "value")
-      })
-    }
-  }
-  if (derivedSettings.chart_type_props.has_control_limits) {
-    ["99", "95", "65"].forEach(limit => {
-      if (inputSettings.lines[`ttip_show_${limit}` as LinesKeys] && inputSettings.lines[`show_${limit}` as LinesKeys]) {
-        tooltip.push({
-          displayName: `${inputSettings.lines[`ttip_label_${limit}_prefix_upper` as LinesKeys]}${inputSettings.lines[`ttip_label_${limit}` as LinesKeys]}`,
-          value: formatValues(table_row[`ul${limit}` as keyof summaryTableRowData], "value")
-        })
-      }
+      displayName: `${inputSettings.lines.ttip_label_99_prefix_upper}${inputSettings.lines.ttip_label_99}`,
+      value: formatValues(table_row.ul99, "value")
     })
   }
   if (inputSettings.lines.show_target && inputSettings.lines.ttip_show_target) {
@@ -96,44 +73,68 @@ export default function buildTooltip(table_row: summaryTableRowData,
   if (inputSettings.lines.show_alt_target && inputSettings.lines.ttip_show_alt_target && !isNullOrUndefined(table_row.alt_target)) {
     tooltip.push({
       displayName: inputSettings.lines.ttip_label_alt_target,
-      value: formatValues(table_row.alt_target, "value")
+      value: targetOperator(inputSettings.lines.operator_alt_target)
+             + formatValues(table_row.alt_target, "value")
     })
   }
-  if (derivedSettings.chart_type_props.has_control_limits) {
-    ["68", "95", "99"].forEach(limit => {
-      if (inputSettings.lines[`ttip_show_${limit}` as LinesKeys] && inputSettings.lines[`show_${limit}` as LinesKeys]) {
-        tooltip.push({
-          displayName: `${inputSettings.lines[`ttip_label_${limit}_prefix_lower` as LinesKeys]}${inputSettings.lines[`ttip_label_${limit}` as LinesKeys]}`,
-          value: formatValues(table_row[`ll${limit}` as keyof summaryTableRowData], "value")
-        })
-      }
+  if (derivedSettings.chart_type_props.has_control_limits
+      && inputSettings.lines.ttip_show_99 && inputSettings.lines.show_99) {
+    tooltip.push({
+      displayName: `${inputSettings.lines.ttip_label_99_prefix_lower}${inputSettings.lines.ttip_label_99}`,
+      value: formatValues(table_row.ll99, "value")
     })
   }
 
-  if ([table_row.astpoint, table_row.trend, table_row.shift, table_row.two_in_three].some(d => d !== "none")){
-    const patterns: string[] = new Array<string>();
-    if (table_row.astpoint !== "none") {
-      // Note if flagged according to non-default limit
-      let flag_text: string = "Astronomical Point";
-      if (ast_limit !== "3 Sigma") {
-        flag_text = `${flag_text} (${ast_limit})`;
-      }
-      patterns.push(flag_text)
-    }
-    if (table_row.trend !== "none") { patterns.push("Trend") }
-    if (table_row.shift !== "none") { patterns.push("Shift") }
-    if (table_row.two_in_three !== "none") {
-      // Note if flagged according to non-default limit
-      let flag_text: string = "Two-in-Three";
-      if (two_in_three_limit !== "2 Sigma") {
-        flag_text = `${flag_text} (${two_in_three_limit})`;
-      }
-      patterns.push(flag_text)
-    }
+  // Points beyond the control limits are the one per-point flag left; the
+  // runs rules are series-level and appear as counts below.
+  if (table_row.astpoint !== "none") {
     tooltip.push({
-      displayName: "Pattern(s)",
-      value: patterns.join("\n")
+      displayName: "Signal",
+      value: "Uden for kontrolgrænse"
     })
+  }
+
+  // The signal counts for this row's period. The panel shows the same
+  // numbers, but auto-hides on a narrow tile — this is then the only way to
+  // reach them. Shown whether or not a signal fired: "4 (7 forventet)" says
+  // how much room is left, which the absence of a dashed line does not.
+  if (inputSettings.signal_panel.ttip_show_signals && !isNullOrUndefined(spc_stats)) {
+    const expected: string = inputSettings.signal_panel.ttip_label_expected;
+    const withExpectation = (actual: number | null, threshold: number | null): string => {
+      return isNullOrUndefined(actual) || isNullOrUndefined(threshold)
+        ? "\u2013"
+        : `${actual} (${threshold} ${expected})`;
+    };
+
+    tooltip.push({
+      displayName: inputSettings.signal_panel.label_longest_run,
+      value: withExpectation(spc_stats!.longest_run, spc_stats!.longest_run_max)
+    });
+    tooltip.push({
+      displayName: inputSettings.signal_panel.label_crossings,
+      value: withExpectation(spc_stats!.n_crossings, spc_stats!.n_crossings_min)
+    });
+    // Only control charts have limits; on a run chart the row is absent.
+    if (!isNullOrUndefined(spc_stats!.n_beyond_limits)) {
+      tooltip.push({
+        displayName: inputSettings.signal_panel.label_beyond_limits,
+        value: withExpectation(spc_stats!.n_beyond_limits, 0)
+      });
+    }
+    // Uafhængig af panelrækken: tallet hører til de øvrige signaltal her,
+    // også når panelet er skruet ned til de tre, der bærer et verdikt.
+    tooltip.push({
+      displayName: inputSettings.signal_panel.label_n_useful,
+      value: `${spc_stats!.n_useful}`
+    });
+  }
+
+  // Sidst: det er kontekst om hele diagrammet, ikke om punktet.
+  if (inputSettings.spc.ttip_show_chart_type) {
+    tooltip.push({
+      displayName: inputSettings.spc.ttip_label_chart_type,
+      value: chartTypeLabel(inputSettings.spc.chart_type)
+    });
   }
 
   if (!isNullOrUndefined(inputTooltips) && inputTooltips.length > 0) {

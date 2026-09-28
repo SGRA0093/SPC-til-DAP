@@ -13,16 +13,39 @@ const FormattingComponent = {
 
 type FormattingComponentKeys = keyof typeof FormattingComponent;
 
+// Region Hovedstadens Power BI-tema ("Temafil Juni 2026"). Farverne er taget
+// derfra frem for valgt frit, så visualen står som en af husets i en rapport.
+// Paletten er uændret fra temafilen fra november 2023.
 const defaultColours: Record<string, string> = {
-  improvement: "#00B0F0",
-  deterioration: "#E46C0A",
-  neutral_low: "#490092",
-  neutral_high: "#490092",
-  common_cause: "#A6A6A6",
-  limits: "#6495ED",
-  standard: "#000000",
-  lightgray: "#D3D3D3",
-  white: "#FFFFFF"
+  // Observationer uden for kontrolgrænserne. Én farve, ens over og under:
+  // qicharts2's sigma.signal er en ren boolean per punkt og fortolker ikke,
+  // om afvigelsen er ønsket.
+  //
+  // Orange, ikke rød. Designguiden (v1.3, §3 Farvebrug) siger, at grøn og rød
+  // kun bruges om noget med en klar positiv eller negativ værdi, mens
+  // neutrale emner — "fx afvigelse fra en målsætning" — altid markeres med
+  // #C47B00. Et punkt uden for kontrolgrænserne er præcis sådan et: det siger
+  // at processen har ændret sig, ikke om ændringen er god.
+  beyond_limit: "#C47B00",
+  // Temafarve 1: dataserien, altså det vigtigste i diagrammet.
+  common_cause: "#002555",
+  // Temafarve 2: kontrolgrænserne. Dæmpet, så serien står forrest.
+  limits: "#809bbc",
+  // Lys tone af temafarve 2: fladen mellem de to kontrolgrænser. Tegnes
+  // uigennemsigtigt bag linjer og punkter, så tonen er præcis denne.
+  limits_band: "#CCD7E4",
+  // Lys tone af temafarve 1: centerlinjen. Lysere end serien, fordi serien
+  // er det, der læses, og centerlinjen kun er dens reference.
+  centerline: "#99a8bb",
+  // Temaets foreground: akser, rammer, mållinjer og al tekst.
+  standard: "#333333",
+  // Temaets backgroundLight.
+  lightgray: "#e3e2e1",
+  white: "#FFFFFF",
+  // Signalfremhævning i signalpanelet: en udfyldt boks med omvendt tekst.
+  // Grå frem for en kulør, så markeringen overlever sort-hvid print og
+  // farveblindhed — temaets egen neutrale grå (lightLabel).
+  signal_box: "#605E5C"
 };
 
 type UndefinedOrNumT<T> = T extends undefined ? undefined | number : T;
@@ -75,7 +98,8 @@ function fontOption(displayName: string) {
   return {
     displayName: displayName,
     type: FormattingComponent.FontPicker,
-    default: "'Arial', sans-serif",
+    // Temaets skrifttype. Alle textClasses i temafilen bruger Segoe UI.
+    default: "'Segoe UI', wf_segoe-ui_normal, helvetica, arial, sans-serif",
     valid: [
       "'Arial', sans-serif",
       "Arial",
@@ -109,7 +133,9 @@ function fontOption(displayName: string) {
 }
 
 function fontSizeOption(displayName: string) {
-  return numberOption(displayName, 10, { min: 0, max: 100 });
+  // 12 er temaets label- og header-størrelse. Signalpanelets egne størrelser
+  // er sat særskilt og følger ikke denne, fordi de er layoutkritiske.
+  return numberOption(displayName, 12, { min: 0, max: 100 });
 }
 
 type DropdownItem = { displayName: string; value: string; }
@@ -118,32 +144,42 @@ const valueTransforms: Record<string, (x: string) => string> = {
   sentence: (x: string) => x.toLowerCase().replace(/\b\w/g, (char: string) => char.toUpperCase())
 };
 
+/**
+ * @param hiddenValues - Værdier der forbliver gyldige, men ikke tilbydes i
+ *   dropdownen. `valid` er hvidlisten i extractConditionalFormatting: en gemt
+ *   værdi udenfor den erstattes af default og udløser en fejlbesked til
+ *   brugeren. Skal en indstilling kunne trækkes tilbage uden at ødelægge
+ *   rapporter, der allerede bruger den, skal den altså blive i `valid` og kun
+ *   forsvinde fra `items`.
+ */
 function dropdownOption(displayName: string, defaultValue: string,
                         validValues: string[], displayTransform?: string,
-                        displayNames?: string[]) {
-  const numValues: number = validValues.length;
+                        displayNames?: string[], hiddenValues?: string[]) {
   const rtn = {
     displayName: displayName,
     type: FormattingComponent.Dropdown,
     default: defaultValue,
     valid: validValues,
-    items: new Array<DropdownItem>(numValues)
+    items: new Array<DropdownItem>()
   };
 
   const transformFun: (x: string) => string = valueTransforms[(displayTransform ?? "none")]
 
-  for (let i: number = 0; i < numValues; i++) {
-    rtn.items[i] = {
+  for (let i: number = 0; i < validValues.length; i++) {
+    if (hiddenValues?.includes(validValues[i])) {
+      continue;
+    }
+    rtn.items.push({
       displayName: displayNames ? displayNames[i] : transformFun(validValues[i]),
       value: validValues[i]
-    }
+    })
   }
 
   return rtn;
 }
 
 function lineTypeOption(displayName: string, defaultValue: string) {
-  return dropdownOption(displayName, defaultValue, ["10 0", "10 10", "2 5"], "none", ["Solid", "Dashed", "Dotted"])
+  return dropdownOption(displayName, defaultValue, ["10 0", "10 10", "2 5"], "none", ["Fuldt optrukket", "Stiplet", "Prikket"])
 }
 
 function textOption(displayName: string, defaultValue: string) {
@@ -155,16 +191,18 @@ function textOption(displayName: string, defaultValue: string) {
 }
 
 function lineLabelPositionOption() {
-  return dropdownOption("Position of Value on Line(s)", "beside",
+  return dropdownOption("Placering af værdi på linjen", "beside",
                         ["outside", "inside", "above", "below", "beside"],
-                        "sentence");
+                        "none",
+                        ["Udenfor", "Indenfor", "Over", "Under", "Ved siden af"]);
 }
 
 function borderStyleOption(displayName: string) {
   return dropdownOption(
     displayName, "solid",
     ["solid", "dotted", "dashed", "double", "groove", "ridge", "inset", "outset", "none"],
-    "sentence"
+    "none",
+    ["Fuldt optrukket", "Prikket", "Stiplet", "Dobbelt", "Rille", "Kant", "Indsænket", "Hævet", "Ingen"]
   )
 }
 
@@ -186,7 +224,8 @@ function fontWeightOption(displayName: string) {
     displayName,
     "normal",
     ["normal", "bold", "bolder", "lighter"],
-    "sentence"
+    "none",
+    ["Normal", "Fed", "Federe", "Tyndere"]
   )
 }
 
@@ -195,7 +234,8 @@ function textTransformOption(displayName: string) {
     displayName,
     "capitalize",
     ["uppercase", "lowercase", "capitalize", "none"],
-    "sentence"
+    "none",
+    ["STORE BOGSTAVER", "små bogstaver", "Stort forbogstav", "Ingen"]
   )
 }
 

@@ -8,15 +8,13 @@ import extractValues from "../Functions/extractValues";
 import extractConditionalFormatting from "../Functions/extractConditionalFormatting";
 import validateInputData from "../Functions/validateInputData";
 import isNullOrUndefined from "../Functions/isNullOrUndefined";
-import seq from "../Functions/seq";
-import between from "../Functions/between";
 import type { settingsValueType } from "../settings";
 import type { controlLimitsArgs } from "../Classes/viewModelClass";
 import type derivedSettingsClass from "../Classes/derivedSettingsClass";
 import type { ValidationT } from "./validateInputData";
 
 export type dataObject = {
-  limitInputArgs: controlLimitsArgs;
+  limitInputArgs: Omit<controlLimitsArgs, "subset_points">;
   spcSettings: settingsValueType["spc"];
   highlights?: PrimitiveValue[];
   anyHighlights: boolean;
@@ -31,14 +29,12 @@ export type dataObject = {
   anyLabels: boolean;
   warningMessage: string;
   alt_targets?: number[];
-  speclimits_lower?: number[];
-  speclimits_upper?: number[];
   validationStatus: ValidationT;
 }
 
 function invalidInputData(inputValidStatus: ValidationT): dataObject {
   return {
-    limitInputArgs: {} as controlLimitsArgs,
+    limitInputArgs: {} as dataObject["limitInputArgs"],
     spcSettings: {} as settingsValueType["spc"],
     highlights: [],
     anyHighlights: false,
@@ -53,8 +49,6 @@ function invalidInputData(inputValidStatus: ValidationT): dataObject {
     anyLabels: false,
     warningMessage: inputValidStatus.error!,
     alt_targets: [],
-    speclimits_lower: [],
-    speclimits_upper: [],
     validationStatus: inputValidStatus
   }
 }
@@ -78,8 +72,6 @@ export default function extractInputData(inputView: DataViewCategorical,
   let labels_cond = extractConditionalFormatting<settingsValueType["labels"]>(inputView, "labels", inputSettings, idxs)?.values as settingsValueType["labels"][];
 
   let alt_targets: (number | undefined)[] | undefined = inputSettings.lines.show_alt_target ? lines_cond.map(d => d.alt_target) : undefined;
-  let speclimits_lower: (number | undefined)[] | undefined = inputSettings.lines.show_specification ? lines_cond.map(d => d.specification_lower) : undefined;
-  let speclimits_upper: (number | undefined)[] | undefined = inputSettings.lines.show_specification ? lines_cond.map(d => d.specification_upper) : undefined;
 
   let spcSettings: settingsValueType["spc"][] = extractConditionalFormatting<settingsValueType["spc"]>(inputView, "spc", inputSettings, idxs)?.values as settingsValueType["spc"][];
   const inputValidStatus: ValidationT = validateInputData(keys, numerators, denominators, xbar_sds, derivedSettings.chart_type_props, idxs);
@@ -103,12 +95,12 @@ export default function extractInputData(inputView: DataViewCategorical,
       if (settingsMessages[i].length > 0) {
         settingsMessages[i].forEach(setting_removal_message => {
           removalMessages.push(
-            `Conditional formatting for ${groupVarName} ${keys![idx]} ignored due to: ${setting_removal_message}.`
+            `Betinget formatering for ${groupVarName} ${keys![idx]} ignoreret: ${setting_removal_message}.`
           )}
         );
       }
     } else {
-      removalMessages.push(`${groupVarName} ${keys![idx]} removed due to: ${inputValidStatus.messages[idx]}.`)
+      removalMessages.push(`${groupVarName} ${keys![idx]} udeladt: ${inputValidStatus.messages[idx]}.`)
     }
   })
 
@@ -126,32 +118,7 @@ export default function extractInputData(inputView: DataViewCategorical,
   }
 
   const valid_alt_targets: number[] | undefined = isNullOrUndefined(alt_targets) ? undefined : extractValues(alt_targets, valid_ids);
-  if (inputSettings.nhs_icons.show_assurance_icons) {
-    const alt_targets_length: number = valid_alt_targets?.length ?? 0;
-    if (alt_targets_length > 0) {
-      const last_target: number | undefined = valid_alt_targets?.[alt_targets_length - 1];
-      if (isNullOrUndefined(last_target)) {
-        removalMessages.push("NHS Assurance icon requires a valid alt. target at last observation.")
-      }
-    }
-
-    if (!derivedSettings.chart_type_props.has_control_limits) {
-      removalMessages.push("NHS Assurance icon requires chart with control limits.")
-    }
-  }
-
   const curr_highlights = isNullOrUndefined(highlights) ? undefined : extractValues(highlights, valid_ids);
-  const num_points_subset: number | undefined = spcSettings[0].num_points_subset;
-  let subset_points: number[];
-  if (isNullOrUndefined(num_points_subset) || !between(num_points_subset, 1, valid_ids.length)) {
-    subset_points = seq(0, valid_ids.length - 1);
-  } else {
-    if (spcSettings[0].subset_points_from === "Start") {
-      subset_points = seq(0, spcSettings[0].num_points_subset! - 1);
-    } else {
-      subset_points = seq(valid_ids.length - spcSettings[0].num_points_subset!, valid_ids.length - 1);
-    }
-  }
   const valid_labels: string[] | undefined = isNullOrUndefined(labels) ? undefined : extractValues(labels, valid_ids) as string[];
   return {
     limitInputArgs: {
@@ -159,8 +126,7 @@ export default function extractInputData(inputView: DataViewCategorical,
       numerators: extractValues(numerators, valid_ids) as number[],
       denominators: isNullOrUndefined(denominators) ? undefined : extractValues(denominators, valid_ids),
       xbar_sds: isNullOrUndefined(xbar_sds) ? undefined : extractValues(xbar_sds, valid_ids),
-      outliers_in_limits: spcSettings[0].outliers_in_limits,
-      subset_points: subset_points
+      outliers_in_limits: spcSettings[0].outliers_in_limits
     },
     spcSettings: spcSettings[0],
     tooltips: isNullOrUndefined(tooltips) ? undefined : extractValues(tooltips, valid_ids),
@@ -176,8 +142,6 @@ export default function extractInputData(inputView: DataViewCategorical,
     label_formatting: extractValues(labels_cond, valid_ids),
     warningMessage: removalMessages.length > 0 ? removalMessages.join("\n") : "",
     alt_targets: valid_alt_targets,
-    speclimits_lower: isNullOrUndefined(speclimits_lower) ? speclimits_lower : extractValues(speclimits_lower, valid_ids),
-    speclimits_upper: isNullOrUndefined(speclimits_upper) ? speclimits_upper : extractValues(speclimits_upper, valid_ids),
     validationStatus: inputValidStatus
   }
 }

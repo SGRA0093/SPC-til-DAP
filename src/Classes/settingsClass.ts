@@ -15,6 +15,21 @@ export type optionalSettingsTypes = Partial<{
   [K in keyof typeof defaultSettings]: Partial<settingsValueType[K]>;
 }>;
 
+// Kort, der ikke vises i formateringsruden. Indstillingerne bliver stående i
+// både settings-modellen og capabilities.json, så en rapport, der allerede har
+// gemt en værdi, ikke mister den — de er blot ikke længere noget, brugeren kan
+// stille på.
+//
+// "labels": datafeltet med værdietiketter er fjernet fra Byg-ruden, så kortet
+// ville kun kunne stille på noget, der aldrig får data.
+const hiddenCards: readonly settingsModelKeys[] = ["labels"] as const;
+
+// Enkelte indstillinger, der ikke vises, af samme grund som kortene ovenfor.
+//
+// "lines.type_target": centerlinjens stipling er forbeholdt runs-signalet
+// (se drawLines), så en valgt linjetype ville ikke have nogen virkning.
+const hiddenSettings: readonly string[] = ["lines.type_target"] as const;
+
 // Re-declare enum to avoid importing powerbi module everywhere settingsClass is used
 const VisualEnumerationInstanceKinds = {
   Constant: 1 << 0 as powerbi.VisualEnumerationInstanceKinds.Rule,
@@ -89,24 +104,6 @@ export default class settingsClass {
       })
     })
 
-    if (this.settings[0].nhs_icons.show_variation_icons) {
-      const patterns: string[] = ["astronomical", "shift", "trend", "two_in_three"];
-      const anyOutlierPatterns: boolean = patterns.some(d => this.settings[0].outliers[d as keyof settingsValueType["outliers"]]);
-      if (!anyOutlierPatterns) {
-        this.validationStatus.status = 1;
-        this.validationStatus.error = "Variation icons require at least one outlier pattern to be selected";
-      }
-    }
-/*
-    if (this.settings[0].nhs_icons.show_assurance_icons) {
-      const altTargetPresent: boolean = !isNullOrUndefined(this.settings[0].lines.alt_target);
-      const improvementDirection: string = this.settings[0].outliers.improvement_direction;
-      if (!altTargetPresent || improvementDirection === "neutral") {
-        this.validationStatus.status = 1;
-        this.validationStatus.error = "Assurance icons require an alternative target and a non-neutral improvement direction";
-      }
-    }
-*/
     this.settings.forEach((settingsItem, idx) => {
       this.derivedSettings[idx] = new derivedSettingsClass(settingsItem.spc);
     });
@@ -119,6 +116,9 @@ export default class settingsClass {
 
     for (const settingsModelKey in settingsModel) {
       const currCardName: settingsModelKeys = settingsModelKey as settingsModelKeys;
+      if (hiddenCards.includes(currCardName)) {
+        continue;
+      }
       let curr_card: powerbi.visuals.FormattingCard = {
         description: settingsModel[currCardName].description,
         displayName: settingsModel[currCardName].displayName,
@@ -139,6 +139,9 @@ export default class settingsClass {
         const currSettings = currSettingsGroups[currSettingsGroupName] as MergeUnions<(typeof currSettingsGroups)[keyof typeof currSettingsGroups]>;
         for (const settingNamekey in currSettings) {
           const currSettingName = settingNamekey as keyof typeof currSettings;
+          if (hiddenSettings.includes(`${currCardName}.${String(currSettingName)}`)) {
+            continue;
+          }
           curr_card.revertToDefaultDescriptors!.push({
             objectName: currCardName,
             propertyName: currSettingName
@@ -182,6 +185,12 @@ export default class settingsClass {
           if (currSettings[currSettingName].type !== FormattingComponent.ToggleSwitch) {
             (curr_slice.control.properties.descriptor! as FormattingDescriptor).instanceKind
               = VisualEnumerationInstanceKinds.ConstantOrRule
+          }
+
+          // Info-ikon ved indstillingens navn. Kun de indstillinger, der selv
+          // bærer en description, får et — de øvrige slices er uændrede.
+          if ("description" in currSettings[currSettingName]) {
+            curr_slice.description = currSettings[currSettingName].description as string;
           }
 
           if ("options" in currSettings[currSettingName]) {

@@ -1,18 +1,18 @@
 {
   "visual":{
-    "name":"PBISPC",
-    "displayName":"SPC Charts",
-    "guid":"PBISPC",
+    "name":"DAPSPC",
+    "displayName":"SPC til DAP",
+    "guid":"DAPSPC",
     "visualClassName":"Visual",
-    "version":"1.8.0.0",
-    "description":"A PowerBI custom visual for SPC charts",
-    "supportUrl":"https://github.com/AUS-DOH-Safety-and-Quality/PowerBI-SPC",
-    "gitHubUrl":"https://github.com/AUS-DOH-Safety-and-Quality/PowerBI-SPC"
+    "version":"1.0.0.0",
+    "description":"Statistisk proceskontrol: SPC-diagrammer med automatisk signaldetektion",
+    "supportUrl":"https://github.com/johanreventlow/SPC-til-DAP/issues",
+    "gitHubUrl":"https://github.com/johanreventlow/SPC-til-DAP"
   },
   "apiVersion":"5.1.0",
   "author":{
-    "name":"HQIU - WA Health",
-    "email":"safetyandquality@health.wa.gov.au"
+    "name":"Bispebjerg og Frederiksberg Hospital",
+    "email":"johan.reventlow@regionh.dk"
   },
   "assets":{
     "icon":"assets/icon.png"

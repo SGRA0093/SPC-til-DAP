@@ -1,15 +1,23 @@
-import { paddingOption, toggleOption } from "./common";
+import { paddingOption, toggleOption, numberOption } from "./common";
 
 const canvasSettings = {
-  description: "Canvas Settings",
-  displayName: "Canvas Settings",
+  description: "Plotområde",
+  displayName: "Plotområde",
   settingsGroups: {
     "all": {
-      show_errors: toggleOption("Show Errors on Canvas", true),
-      lower_padding: paddingOption("Padding Below Plot (pixels):"),
-      upper_padding: paddingOption("Padding Above Plot (pixels):"),
-      left_padding: paddingOption("Padding Left of Plot (pixels):"),
-      right_padding: paddingOption("Padding Right of Plot (pixels):")
+      show_errors: toggleOption("Vis fejlbeskeder på diagrammet", true),
+      // Advarsel, når de bundne data ikke passer til diagramtypen. Default
+      // til: fejlen er tavs uden den.
+      show_chart_type_warning: toggleOption("Vis advarsel om diagramtype", true),
+      lower_padding: paddingOption("Margen under plot (px):"),
+      upper_padding: paddingOption("Margen over plot (px):"),
+      left_padding: paddingOption("Margen til venstre (px):"),
+      // Bredere end de øvrige: centerlinjens værdi står som default til højre
+      // for sidste punkt. Tallet er et minimum — er etiketten bredere, måler
+      // adjustPaddingForPanel den og udvider margenen tilsvarende, så den
+      // aldrig lægger sig ind over signalpanelet. Panelets egen bredde er
+      // reserveret særskilt.
+      right_padding: numberOption("Margen til højre (px):", 50)
     }
   }
 };

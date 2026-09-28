@@ -37,6 +37,16 @@ export default class plotPropertiesClass {
   yAxis: axisProperties;
   xScale: d3.AxisScale<number>;
   yScale: d3.AxisScale<number>;
+  // Whether the signal panel is drawn this update. Decided here, where the
+  // viewport is known, so that the padding reserved for the panel and the
+  // drawing of it can never disagree — otherwise a narrow tile would keep
+  // an empty strip to the right of the plot.
+  showSignalPanel: boolean;
+  // Ekstra luft mellem plottet og signalpanelet, målt frem af
+  // adjustPaddingForPanel, når en linjeetiket er bredere end "Margen til
+  // højre". Panelet er forankret til end_padding, så en udvidet margen alene
+  // ville flytte panelet med; denne luft holder det på plads.
+  panelLabelGap: number = 0;
 
   // Separate function so that the axis can be re-calculated on changes to padding
   initialiseScale(svgWidth: number, svgHeight: number): void {
@@ -69,6 +79,7 @@ export default class plotPropertiesClass {
       label_colour: "#000000"
     }
     this.displayPlot = false;
+    this.showSignalPanel = false;
 
     this.xAxis = dummyAxisProperties;
     this.yAxis = dummyAxisProperties;
@@ -98,15 +109,13 @@ export default class plotPropertiesClass {
       const limitMultiplier: number = inputSettings.y_axis.limit_multiplier;
       const values: number[] = controlLimits.values.filter(d => isValidNumber(d));
       const ul99: number[] = controlLimits?.ul99?.filter(d => isValidNumber(d)) ?? [];
-      const speclimits_upper: number[] = controlLimits?.speclimits_upper?.filter(d => isValidNumber(d)) ?? [];
       const ll99: number[] = controlLimits?.ll99?.filter(d => isValidNumber(d)) ?? [];
-      const speclimits_lower: number[] = controlLimits?.speclimits_lower?.filter(d => isValidNumber(d)) ?? [];
       const alt_targets: number[] = controlLimits.alt_targets?.filter(d => isValidNumber(d)) ?? [];
       const targets: number[] = controlLimits.targets?.filter(d => isValidNumber(d)) ?? [];
 
       const maxValue: number = max(values);
-      const maxValueOrLimit: number = max((values.concat(ul99).concat(speclimits_upper).concat(alt_targets)).filter(d => isValidNumber(d)));
-      const minValueOrLimit: number = min((values.concat(ll99).concat(speclimits_lower).concat(alt_targets)).filter(d => isValidNumber(d)));
+      const maxValueOrLimit: number = max((values.concat(ul99).concat(alt_targets)).filter(d => isValidNumber(d)));
+      const minValueOrLimit: number = min((values.concat(ll99).concat(alt_targets)).filter(d => isValidNumber(d)));
       let maxTarget: number = max(targets);
       if (!isValidNumber(maxTarget)) {
         maxTarget = (maxValueOrLimit - minValueOrLimit) / 2 + minValueOrLimit;
@@ -116,8 +125,22 @@ export default class plotPropertiesClass {
         minTarget = (maxValueOrLimit - minValueOrLimit) / 2 + minValueOrLimit;
       }
 
-      const upperLimitRaw: number = maxTarget + (maxValueOrLimit - maxTarget) * limitMultiplier;
-      const lowerLimitRaw: number = minTarget - (minTarget - minValueOrLimit) * limitMultiplier;
+      // Skaleringsfaktoren må udvide aksen, men ikke skære kontrolgrænserne
+      // væk. Under 1,0 landede udtrykket inde mellem centerlinjen og den
+      // bredeste grænse, og drawLines dropper punkter uden for aksen — så
+      // grænselinjen forsvandt, helt eller i stykker, uden nogen besked.
+      //
+      // Det ramte især I′: dér er grænserne punktvise (3·s̄/√dᵢ), så de er
+      // brede ved små nævnere og smalle ved store. En akse, der ikke nåede de
+      // bredeste, viste derfor grænserne i stykker — de var der for nogle
+      // punkter og væk for andre.
+      //
+      // En eksplicit Nedre/Øvre grænse og loftet på 100 % for procentkort
+      // gælder stadig; de er brugerens eller kortets bevidste valg.
+      const upperLimitRaw: number = Math.max(maxTarget + (maxValueOrLimit - maxTarget) * limitMultiplier,
+                                             maxValueOrLimit);
+      const lowerLimitRaw: number = Math.min(minTarget - (minTarget - minValueOrLimit) * limitMultiplier,
+                                             minValueOrLimit);
       const multiplier: number = derivedSettings.multiplier;
 
       // Assume that observed values > 100% are intentional, and do not truncate
@@ -151,11 +174,19 @@ export default class plotPropertiesClass {
                                       ? inputSettings.x_axis.xlimit_label_size
                                       : 0;
 
+    // The panel is only worth its width when the plot keeps a usable share
+    // of the tile; below the threshold the tooltip carries the same counts.
+    this.showSignalPanel = inputSettings.signal_panel.show_panel
+      && options.viewport.width >= inputSettings.signal_panel.panel_hide_below_width
+      && (viewModel.outliers[0]?.per_group_stats?.length ?? 0) > 0;
+    const panelPadding: number = this.showSignalPanel ? inputSettings.signal_panel.panel_width : 0;
+    this.panelLabelGap = 0;
+
     this.xAxis = {
       lower: !isNullOrUndefined(xLowerLimit) ? xLowerLimit : 0,
       upper: xUpperLimit as number,
       start_padding: inputSettings.canvas.left_padding + leftLabelPadding,
-      end_padding: inputSettings.canvas.right_padding,
+      end_padding: inputSettings.canvas.right_padding + panelPadding,
       colour: colorPalette.isHighContrast ? colorPalette.foregroundColour : inputSettings.x_axis.xlimit_colour,
       ticks: inputSettings.x_axis.xlimit_ticks,
       tick_size: `${xTickSize}px`,

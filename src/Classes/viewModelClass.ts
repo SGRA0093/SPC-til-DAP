@@ -8,25 +8,38 @@ import settingsClass from "./settingsClass";
 import { type settingsValueType } from "../settings";
 import type derivedSettingsClass from "./derivedSettingsClass";
 import buildTooltip from "../Functions/buildTooltip";
-import getAesthetic from "../Functions/getAesthetic";
-import checkFlagDirection from "../Outlier Flagging/checkFlagDirection";
 import rep from "../Functions/rep";
 import type { dataObject } from "../Functions/extractInputData";
 import extractInputData from "../Functions/extractInputData";
 import isNullOrUndefined from "../Functions/isNullOrUndefined";
-import variationIconsToDraw from "../Outlier Flagging/variationIconsToDraw";
-import assuranceIconToDraw from "../Outlier Flagging/assuranceIconToDraw";
 import validateDataViewColumns from "../Functions/validateDataViewColumns";
+import chartTypeWarning from "../Functions/chartTypeWarning";
+import limitGroupBounds from "../Functions/limitGroupBounds";
 import valueFormatter from "../Functions/valueFormatter";
-import calculateTrendLine from "../Functions/calculateTrendLine";
 import groupBy from "../Functions/groupBy";
 import astronomical from "../Outlier Flagging/astronomical";
-import trend from "../Outlier Flagging/trend";
-import twoInThree from "../Outlier Flagging/twoInThree";
-import shift from "../Outlier Flagging/shift";
+import { anhojRunsAnalysis, type runsAnalysisObject } from "../Outlier Flagging/anhojShared";
 import { lineNameMap } from "../Functions/getAesthetic";
 import isValidNumber from "../Functions/isValidNumber";
+import seq from "../Functions/seq";
+import between from "../Functions/between";
 import { default as updateOptionsUndefined, UpdateOptionsValidTypes } from "../Functions/updateOptionsUndefined";
+
+// powerbi.VisualUpdateType er et bit-flag: Data = 2, Resize = 4, ViewMode = 8,
+// Style = 16, ResizeEnd = 32, All = 62. Power BI sender ofte flere flag samlet,
+// så en test for lighed med Data rammer kun den ene af flere lovlige værdier.
+// Enum'et er `const enum` i API'et og kan ikke importeres som værdi.
+const VISUAL_UPDATE_TYPE_DATA: number = 2;
+
+/**
+ * True når opdateringen kan indeholde ændrede data eller indstillinger.
+ *
+ * Resize alene (4) har ikke Data-bitten sat og skal netop ikke udløse en
+ * genberegning — det er hele pointen med at teste på typen.
+ */
+function updateTouchesData(updateType: number | undefined): boolean {
+  return ((updateType ?? VISUAL_UPDATE_TYPE_DATA) & VISUAL_UPDATE_TYPE_DATA) !== 0;
+}
 
 type LineSettingsKeys = keyof settingsValueType["lines"];
 
@@ -42,6 +55,10 @@ export type lineData = {
   line_value: number | undefined;
   group: string;
   aesthetics: settingsValueType["lines"];
+  // Per-segment Anhøj signal flag. When true and group === "targets", the
+  // centerline segment is rendered dashed to indicate non-random variation
+  // in this segment's data group.
+  group_signal_dashed?: boolean;
 }
 
 export type summaryTableRowData = {
@@ -52,18 +69,8 @@ export type summaryTableRowData = {
   target: number | undefined;
   alt_target: number | undefined;
   ll99: number | undefined;
-  ll95: number | undefined;
-  ll68: number | undefined;
-  ul68: number | undefined;
-  ul95: number | undefined;
   ul99: number | undefined;
-  speclimits_lower: number | undefined;
-  speclimits_upper: number | undefined;
-  trend_line: number | undefined;
   astpoint: string;
-  trend: string;
-  shift: string;
-  two_in_three: string;
 }
 
 export type summaryTableRowDataGrouped = {
@@ -79,8 +86,6 @@ export type summaryTableRowDataGrouped = {
   lcl68: number;
   lcl95: number;
   lcl99: number;
-  variation: string;
-  assurance: string;
 }
 
 export type plotData = {
@@ -118,16 +123,9 @@ export type controlLimitsObject = {
   denominators?: (number | undefined)[];
   targets: (number | undefined)[];
   ll99?: (number | undefined)[];
-  ll95?: (number | undefined)[];
-  ll68?: (number | undefined)[];
-  ul68?: (number | undefined)[];
-  ul95?: (number | undefined)[];
   ul99?: (number | undefined)[];
   count?: (number | undefined)[];
   alt_targets?: (number | undefined)[];
-  speclimits_lower?: (number | undefined)[];
-  speclimits_upper?: (number | undefined)[];
-  trend_line?: (number | undefined)[];
 };
 
 export type controlLimitsArgs = {
@@ -139,11 +137,22 @@ export type controlLimitsArgs = {
   subset_points: number[];
 }
 
+// The counts displayed beside the chart, per data-group. Extends the runs
+// analysis with the limit signal, so one object carries every number the
+// signal panel and the tooltip show. n_beyond_limits is null on chart types
+// without control limits (run charts), where the row is not shown at all.
+export type groupStatsObject = runsAnalysisObject & {
+  n_beyond_limits: number | null;
+  beyond_limits_signal: boolean;
+}
+
 export type outliersObject = {
   astpoint: string[];
-  trend: string[];
-  two_in_three: string[];
-  shift: string[];
+  // One entry per data-group (baseline-split). Order matches
+  // groupStartEndIndexes for the same indicator, which holds the phases as
+  // indexes into the limits (see limitGroupBounds), not into the data rows.
+  per_group_signals: { long_run: boolean; few_crossings: boolean }[];
+  per_group_stats: groupStatsObject[];
 }
 
 export type colourPaletteType = {
@@ -172,6 +181,11 @@ export default class viewModelClass {
   headless: boolean;
   frontend: boolean;
 
+  // Advarsel om, at de bundne data ikke passer til diagramtypen. Tom, når
+  // alt passer. Tegnes på lærredet, ikke som en fejl: diagrammet er gyldigt,
+  // valget er blot sandsynligvis forkert.
+  chartTypeWarning: string;
+
   indicatorVarNames: string[];
   groupNames: string[][];
   identities: ISelectionId[][];
@@ -188,6 +202,7 @@ export default class viewModelClass {
     this.plotPoints = new Array<plotData[] | plotDataGrouped[]>();
     this.groupedLines = new Array<[string, lineData[]]>();
     this.firstRun = true
+    this.chartTypeWarning = "";
     this.splitIndexes = new Array<number>();
     this.groupStartEndIndexes = new Array<number[][]>();
     this.identities = new Array<ISelectionId[]>();
@@ -207,9 +222,14 @@ export default class viewModelClass {
     if (updateOptionsStatus === UpdateOptionsValidTypes.Undefined) {
       return { status: false, error: "" }
     } else if (updateOptionsStatus === UpdateOptionsValidTypes.MissingNumerators) {
-      return { status: false, error: "No Numerators passed!" }
+      return { status: false, error: "Ingen tællere angivet." }
     }
-    if (isNullOrUndefined(this.colourPalette)) {
+    // The constructor seeds this with an empty object, which is neither null
+    // nor undefined — so the original guard never fired and the palette was
+    // never filled. isHighContrast stayed undefined, leaving every
+    // high-contrast branch in the visual dead. Fill it whenever the host's
+    // palette has not been read yet.
+    if (isNullOrUndefined(this.colourPalette?.isHighContrast)) {
       this.colourPalette = {
         isHighContrast: host.colorPalette.isHighContrast,
         foregroundColour: host.colorPalette.foreground.value,
@@ -251,7 +271,7 @@ export default class viewModelClass {
       }
     }
 
-    if (options.type === 2 || this.firstRun) {
+    if (updateTouchesData(options.type) || this.firstRun) {
       this.inputSettings.update(options.dataViews[0], idx_per_indicator);
     }
     if (this.inputSettings.validationStatus.error !== "") {
@@ -267,10 +287,15 @@ export default class viewModelClass {
       return res;
     }
 
+    const denominatorsPresent: boolean
+      = options.dataViews[0].categorical?.values?.some(d => d.source?.roles?.denominators) ?? false;
+    this.chartTypeWarning = chartTypeWarning(denominatorsPresent,
+                                             this.inputSettings.derivedSettings[0].chart_type_props);
+
     let invalidData: boolean = false;
 
     // Only re-construct data and re-calculate limits if they have changed
-    if (options.type === 2 || this.firstRun) {
+    if (updateTouchesData(options.type) || this.firstRun) {
       // Handle split indexes (only for first indicator in single mode)
       const hasIndicator: boolean = options.dataViews[0].categorical!.categories!.some(d => d.source.roles!.indicator);
       const split_indexes_str: string = <string>(options.dataViews[0]?.metadata?.objects?.split_indexes_storage?.split_indexes) ?? "[]";
@@ -308,7 +333,11 @@ export default class viewModelClass {
 
         const groupStartEnd: number[][] = this.getGroupingIndexes(inpData, idx === 0 ? this.splitIndexes : undefined);
         const limits: controlLimitsObject = this.calculateLimits(inpData, groupStartEnd, settings);
-        const outliers: outliersObject = this.flagOutliers(limits, groupStartEnd, settings, derivedSettings);
+        // Grænseberegningen tager faserne i rækker; alt herefter slår op i
+        // grænserne og skal have dem i grænsernes indeks (MR har én mindre
+        // per fase).
+        const limitBounds: number[][] = limitGroupBounds(limits.keys, groupStartEnd);
+        const outliers: outliersObject = this.flagOutliers(limits, limitBounds, settings, derivedSettings);
         this.scaleAndTruncateLimits(limits, settings, derivedSettings);
 
         // Create selection identities
@@ -319,7 +348,7 @@ export default class viewModelClass {
         });
 
         // Push to arrays
-        this.groupStartEndIndexes.push(groupStartEnd);
+        this.groupStartEndIndexes.push(limitBounds);
         this.controlLimits.push(limits);
         this.outliers.push(outliers);
         this.identities.push(identities);
@@ -377,53 +406,42 @@ export default class viewModelClass {
     const limitFunction: (args: controlLimitsArgs) => controlLimitsObject
       = limitFunctions[inputSettings.spc.chart_type as keyof typeof limitFunctions];
 
-    inputData.limitInputArgs.outliers_in_limits = inputSettings.spc.outliers_in_limits;
-    let controlLimits: controlLimitsObject;
-    if (groupStartEndIndexes.length > 1) {
-      const groupedData: dataObject[] = groupStartEndIndexes.map((indexes) => {
-        // Force a deep copy
-        let data: dataObject = JSON.parse(JSON.stringify(inputData));
-        let limitKeys: Exclude<(keyof controlLimitsArgs), "outliers_in_limits">[] = Object.keys(data.limitInputArgs) as Exclude<(keyof controlLimitsArgs), "outliers_in_limits">[];
-        limitKeys.forEach(key => {
-          if (Array.isArray(data.limitInputArgs[key])) {
-            const groupVal = data.limitInputArgs[key].slice(indexes[0], indexes[1]);
-            (data.limitInputArgs[key] as typeof groupVal) = groupVal;
-            // Special case for subset points - need to re-index so that
-            //   the indexes are relative to the new subset
-            if (key === "subset_points") {
-              data.limitInputArgs[key] = (data.limitInputArgs[key] as number[]).map((d: number) => d - indexes[0]);
-            }
-          }
-        });
-        return data;
-      })
-
-      const calcLimitsGrouped: controlLimitsObject[] = groupedData.map(d => {
-        const currLimits = limitFunction(d.limitInputArgs);
-        currLimits.trend_line = calculateTrendLine(currLimits.values);
-        return currLimits;
+    const { num_points_subset, subset_points_from, subset_rebaselines } = inputSettings.spc;
+    const args = inputData.limitInputArgs;
+    // Et antal punkter er et heltal. Et decimaltal (fx 5,5) gav et brøkindeks
+    // og fik seq() til at kaste "Invalid array length"; det rundes ned.
+    const requestedSubset: number | undefined = isNullOrUndefined(num_points_subset)
+                                                  ? undefined
+                                                  : Math.floor(num_points_subset);
+    const calcLimitsGrouped: controlLimitsObject[] = groupStartEndIndexes.map(([start, end], groupIndex) => {
+      const n: number = end - start;
+      const applySubset: boolean = groupIndex === 0 || subset_rebaselines;
+      const subsetCount: number = applySubset && !isNullOrUndefined(requestedSubset) && between(requestedSubset, 1, n)
+        ? requestedSubset as number : n;
+      const subsetStart: number = subset_points_from === "Start" ? 0 : n - subsetCount;
+      return limitFunction({
+        keys: args.keys.slice(start, end),
+        numerators: args.numerators.slice(start, end),
+        denominators: args.denominators?.slice(start, end),
+        xbar_sds: args.xbar_sds?.slice(start, end),
+        outliers_in_limits: inputSettings.spc.outliers_in_limits,
+        subset_points: seq(subsetStart, subsetStart + subsetCount - 1)
       });
+    });
 
-      controlLimits = calcLimitsGrouped.reduce((all: controlLimitsObject, curr: controlLimitsObject) => {
-        const allInner: controlLimitsObject = all;
-        Object.entries(all).forEach((entry, idx) => {
-          if (isNullOrUndefined(entry[1])) {
-            return;
-          }
-          const newValues = entry[1].concat(Object.entries(curr)[idx][1]);
-          (allInner[entry[0] as keyof controlLimitsObject] as typeof newValues) = newValues;
-        })
-        return allInner;
+    const controlLimits: controlLimitsObject = calcLimitsGrouped.reduce((all: controlLimitsObject, curr: controlLimitsObject) => {
+      const allInner: controlLimitsObject = all;
+      Object.entries(all).forEach((entry, idx) => {
+        if (isNullOrUndefined(entry[1])) {
+          return;
+        }
+        const newValues = entry[1].concat(Object.entries(curr)[idx][1]);
+        (allInner[entry[0] as keyof controlLimitsObject] as typeof newValues) = newValues;
       })
-    } else {
-      // Calculate control limits using user-specified type
-      controlLimits = limitFunction(inputData.limitInputArgs);
-      controlLimits.trend_line = calculateTrendLine(controlLimits.values);
-    }
+      return allInner;
+    })
 
     controlLimits.alt_targets = inputData.alt_targets;
-    controlLimits.speclimits_lower = inputData.speclimits_lower;
-    controlLimits.speclimits_upper = inputData.speclimits_upper;
 
     for (const key in controlLimits) {
       const keyTyped: keyof controlLimitsObject = key as keyof controlLimitsObject;
@@ -445,17 +463,17 @@ export default class viewModelClass {
     this.indicatorVarNames.forEach(indicator_name => {
       tableColumnsDef.push({ name: indicator_name, label: indicator_name });
     })
-    tableColumnsDef.push({ name: "latest_date", label: "Latest Date" });
+    tableColumnsDef.push({ name: "latest_date", label: "Seneste dato" });
 
     const lineSettings = this.inputSettings.settings[0].lines;
     if (lineSettings.show_main) {
-      tableColumnsDef.push({ name: "value", label: "Value" });
+      tableColumnsDef.push({ name: "value", label: "Værdi" });
     }
     if (this.inputSettings.settings[0].spc.ttip_show_numerator) {
-      tableColumnsDef.push({ name: "numerator", label: "Numerator" });
+      tableColumnsDef.push({ name: "numerator", label: "Tæller" });
     }
     if (this.inputSettings.settings[0].spc.ttip_show_denominator) {
-      tableColumnsDef.push({ name: "denominator", label: "Denominator" });
+      tableColumnsDef.push({ name: "denominator", label: "Nævner" });
     }
     if (lineSettings.show_target) {
       tableColumnsDef.push({ name: "target", label: lineSettings.ttip_label_target });
@@ -463,28 +481,15 @@ export default class viewModelClass {
     if (lineSettings.show_alt_target) {
       tableColumnsDef.push({ name: "alt_target", label: lineSettings.ttip_label_alt_target });
     }
-    ["99", "95", "68"].forEach(limit => {
-      if (lineSettings[`show_${limit}` as LineSettingsKeys]) {
-        tableColumnsDef.push({
-          name: `ucl${limit}`,
-          label: `${lineSettings[`ttip_label_${limit}_prefix_upper` as LineSettingsKeys]}${lineSettings[`ttip_label_${limit}` as LineSettingsKeys]}`
-        })
-      }
-    });
-    ["68", "95", "99"].forEach(limit => {
-      if (lineSettings[`show_${limit}` as LineSettingsKeys]) {
-        tableColumnsDef.push({
-          name: `lcl${limit}`,
-          label: `${lineSettings[`ttip_label_${limit}_prefix_lower` as LineSettingsKeys]}${lineSettings[`ttip_label_${limit}` as LineSettingsKeys]}`
-        })
-      }
-    })
-    const nhsIconSettings: settingsValueType["nhs_icons"] = this.inputSettings.settings[0].nhs_icons;
-    if (nhsIconSettings.show_variation_icons) {
-      tableColumnsDef.push({ name: "variation", label: "Variation" });
-    }
-    if (nhsIconSettings.show_assurance_icons) {
-      tableColumnsDef.push({ name: "assurance", label: "Assurance" });
+    if (lineSettings.show_99) {
+      tableColumnsDef.push({
+        name: "ucl99",
+        label: `${lineSettings.ttip_label_99_prefix_upper}${lineSettings.ttip_label_99}`
+      })
+      tableColumnsDef.push({
+        name: "lcl99",
+        label: `${lineSettings.ttip_label_99_prefix_lower}${lineSettings.ttip_label_99}`
+      })
     }
     const anyTooltips: boolean = this.inputData.some(d => d?.tooltips?.some(t => t.length > 0));
 
@@ -501,48 +506,11 @@ export default class viewModelClass {
         continue;
       }
       const formatValues = valueFormatter(this.inputSettings.settings[i], this.inputSettings.derivedSettings[i]);
-      const varIconFilter: string = this.inputSettings.settings[i].summary_table.table_variation_filter;
-      const assIconFilter: string = this.inputSettings.settings[i].summary_table.table_assurance_filter;
       const limits: controlLimitsObject = this.controlLimits[i];
       if (!limits) {
         continue;
       }
-      const outliers: outliersObject = this.outliers[i];
       const lastIndex: number = limits.keys.length - 1;
-      const varIcons: string[] = variationIconsToDraw(outliers, this.inputSettings.settings[i]);
-      if (varIconFilter !== "all") {
-        if (varIconFilter === "improvement" && !(["improvementHigh", "improvementLow"].includes(varIcons[0]))) {
-          continue;
-        }
-        if (varIconFilter === "deterioration" && !(["concernHigh", "concernLow"].includes(varIcons[0]))) {
-          continue;
-        }
-        if (varIconFilter === "neutral" && !(["neutralHigh", "neutralLow"].includes(varIcons[0]))) {
-          continue;
-        }
-        if (varIconFilter === "common" && varIcons[0] !== "commonCause") {
-          continue;
-        }
-        if (varIconFilter === "special" && varIcons[0] === "commonCause") {
-          continue;
-        }
-      }
-      const assIcon: string = assuranceIconToDraw(limits, this.inputSettings.settings[i],
-                                                      this.inputSettings.derivedSettings[i]);
-      if (assIconFilter !== "all") {
-        if (assIconFilter === "any" && assIcon === "inconsistent") {
-          continue;
-        }
-        if (assIconFilter === "pass" && assIcon !== "consistentPass") {
-          continue;
-        }
-        if (assIconFilter === "fail" && assIcon !== "consistentFail") {
-          continue;
-        }
-        if (assIconFilter === "inconsistent" && assIcon !== "inconsistent") {
-          continue;
-        }
-      }
       const table_row_entries: [string, string | number][] = new Array<[string, string | number]>();
       this.indicatorVarNames.forEach((indicator_name, idx) => {
         table_row_entries.push([indicator_name, this.groupNames[i][idx]]);
@@ -554,13 +522,7 @@ export default class viewModelClass {
       table_row_entries.push(["target", formatValues(limits.targets?.[lastIndex], "value")]);
       table_row_entries.push(["alt_target", formatValues(limits.alt_targets?.[lastIndex], "value")]);
       table_row_entries.push(["ucl99", formatValues(limits.ul99?.[lastIndex], "value")]);
-      table_row_entries.push(["ucl95", formatValues(limits.ul95?.[lastIndex], "value")]);
-      table_row_entries.push(["ucl68", formatValues(limits.ul68?.[lastIndex], "value")]);
-      table_row_entries.push(["lcl68", formatValues(limits.ll68?.[lastIndex], "value")]);
-      table_row_entries.push(["lcl95", formatValues(limits.ll95?.[lastIndex], "value")]);
       table_row_entries.push(["lcl99", formatValues(limits.ll99?.[lastIndex], "value")]);
-      table_row_entries.push(["variation", varIcons[0]]);
-      table_row_entries.push(["assurance", assIcon]);
 
       if (anyTooltips && !isNullOrUndefined(this.inputData[i].tooltips)) {
         this.inputData[i].tooltips![lastIndex].forEach(tooltip => {
@@ -595,54 +557,48 @@ export default class viewModelClass {
     this.tickLabels = new Array<{ x: number; label: string; }>();
     this.tableColumns[0] = new Array<{ name: string; label: string; }>();
 
-    this.tableColumns[0].push({ name: "date", label: "Date" });
-    this.tableColumns[0].push({ name: "value", label: "Value" });
+    this.tableColumns[0].push({ name: "date", label: "Dato" });
+    this.tableColumns[0].push({ name: "value", label: "Værdi" });
 
     if (!controlLimits) {
       return;
     }
 
     if (!isNullOrUndefined(controlLimits.numerators)) {
-      this.tableColumns[0].push({ name: "numerator", label: "Numerator" });
+      this.tableColumns[0].push({ name: "numerator", label: "Tæller" });
     }
     if (!isNullOrUndefined(controlLimits.denominators)) {
-      this.tableColumns[0].push({ name: "denominator", label: "Denominator" });
+      this.tableColumns[0].push({ name: "denominator", label: "Nævner" });
     }
     if (settings.lines.show_target) {
-      this.tableColumns[0].push({ name: "target", label: "Target" });
+      this.tableColumns[0].push({ name: "target", label: "Nuv. niveau" });
     }
     if (settings.lines.show_alt_target) {
-      this.tableColumns[0].push({ name: "alt_target", label: "Alt. Target" });
-    }
-    if (settings.lines.show_specification) {
-      this.tableColumns[0].push({ name: "speclimits_lower", label: "Spec. Lower" },
-                             { name: "speclimits_upper", label: "Spec. Upper" });
-    }
-    if (settings.lines.show_trend) {
-      this.tableColumns[0].push({ name: "trend_line", label: "Trend Line" });
+      this.tableColumns[0].push({ name: "alt_target", label: "Udviklingsmål" });
     }
     if (derivedSettings.chart_type_props.has_control_limits) {
       if (settings.lines.show_99) {
-        this.tableColumns[0].push({ name: "ll99", label: "LL 99%" },
-                               { name: "ul99", label: "UL 99%" });
-      }
-      if (settings.lines.show_95) {
-        this.tableColumns[0].push({ name: "ll95", label: "LL 95%" }, { name: "ul95", label: "UL 95%" });
-      }
-      if (settings.lines.show_68) {
-        this.tableColumns[0].push({ name: "ll68", label: "LL 68%" }, { name: "ul68", label: "UL 68%" });
+        this.tableColumns[0].push({ name: "ll99", label: "Nedre kontrolgrænse" },
+                               { name: "ul99", label: "Øvre kontrolgrænse" });
       }
     }
 
     if (settings.outliers.astronomical) {
-      this.tableColumns[0].push({ name: "astpoint", label: "Ast. Point" });
+      this.tableColumns[0].push({ name: "astpoint", label: "Uden for kontrolgrænse" });
     }
-    if (settings.outliers.trend) {
-      this.tableColumns[0].push({ name: "trend", label: "Trend" });
-    }
-    if (settings.outliers.shift) {
-      this.tableColumns[0].push({ name: "shift", label: "Shift" });
-    }
+
+    // Which period a row belongs to. Bounds are [start, end) and monotonic
+    // in i, so a cursor is enough — the same walk initialiseGroupedLines
+    // uses to decide which centerline segments to dash.
+    const groupBounds: number[][] = this.groupStartEndIndexes[0] ?? [];
+    const perGroupStats: groupStatsObject[] = outliers.per_group_stats ?? [];
+    let statsCursor: number = 0;
+    const statsForRow = (row: number): groupStatsObject | undefined => {
+      while (statsCursor < groupBounds.length && row >= groupBounds[statsCursor][1]) {
+        statsCursor++;
+      }
+      return perGroupStats[statsCursor];
+    };
 
     for (let i: number = 0; i < controlLimits.keys.length; i++) {
       const index: number = controlLimits.keys[i].x;
@@ -650,29 +606,12 @@ export default class viewModelClass {
       if (this.colourPalette.isHighContrast) {
         aesthetics.colour = this.colourPalette.foregroundColour;
       }
-      if (outliers.shift[i] !== "none") {
-        aesthetics.colour = getAesthetic(outliers.shift[i], "outliers",
-                                  "shift_colour", settings) as string;
-        aesthetics.colour_outline = getAesthetic(outliers.shift[i], "outliers",
-                                  "shift_colour", settings) as string;
-      }
-      if (outliers.trend[i] !== "none") {
-        aesthetics.colour = getAesthetic(outliers.trend[i], "outliers",
-                                  "trend_colour", settings) as string;
-        aesthetics.colour_outline = getAesthetic(outliers.trend[i], "outliers",
-                                  "trend_colour", settings) as string;
-      }
-      if (outliers.two_in_three[i] !== "none") {
-        aesthetics.colour = getAesthetic(outliers.two_in_three[i], "outliers",
-                                  "twointhree_colour", settings) as string;
-        aesthetics.colour_outline = getAesthetic(outliers.two_in_three[i], "outliers",
-                                  "twointhree_colour", settings) as string;
-      }
       if (outliers.astpoint[i] !== "none") {
-        aesthetics.colour = getAesthetic(outliers.astpoint[i], "outliers",
-                                  "ast_colour", settings) as string;
-        aesthetics.colour_outline = getAesthetic(outliers.astpoint[i], "outliers",
-                                  "ast_colour", settings) as string;
+        // Én farve, ens over og under grænsen. astpoint bærer stadig hvilken
+        // side bruddet er på, fordi optællingen og tooltippet bruger det —
+        // men det oversættes ikke længere til en vurdering.
+        aesthetics.colour = settings.outliers.ast_colour;
+        aesthetics.colour_outline = settings.outliers.ast_colour;
       }
       const table_row: summaryTableRowData = {
         date: controlLimits.keys[i].label,
@@ -682,18 +621,8 @@ export default class viewModelClass {
         target: controlLimits.targets[i],
         alt_target: controlLimits.alt_targets?.[i],
         ll99: controlLimits?.ll99?.[i],
-        ll95: controlLimits?.ll95?.[i],
-        ll68: controlLimits?.ll68?.[i],
-        ul68: controlLimits?.ul68?.[i],
-        ul95: controlLimits?.ul95?.[i],
         ul99: controlLimits?.ul99?.[i],
-        speclimits_lower: controlLimits?.speclimits_lower?.[i],
-        speclimits_upper: controlLimits?.speclimits_upper?.[i],
-        trend_line: controlLimits?.trend_line?.[i],
-        astpoint: outliers.astpoint[i],
-        trend: outliers.trend[i],
-        shift: outliers.shift[i],
-        two_in_three: outliers.two_in_three[i]
+        astpoint: outliers.astpoint[i]
       }
 
 
@@ -707,7 +636,7 @@ export default class viewModelClass {
                       .createSelectionId(),
         highlighted: !isNullOrUndefined(inputData.highlights?.[index]),
         tooltip: buildTooltip(table_row, inputData?.tooltips?.[index],
-                              settings, derivedSettings),
+                              settings, derivedSettings, statsForRow(i)),
         label: {
           text_value: inputData.labels?.[index],
           aesthetics: inputData.label_formatting[index],
@@ -737,21 +666,9 @@ export default class viewModelClass {
     if (settings.lines.show_alt_target) {
       labels.push("alt_targets");
     }
-    if (settings.lines.show_specification) {
-      labels.push("speclimits_lower", "speclimits_upper");
-    }
-    if (settings.lines.show_trend) {
-      labels.push("trend_line");
-    }
     if (derivedSettings.chart_type_props.has_control_limits) {
       if (settings.lines.show_99) {
         labels.push("ll99", "ul99");
-      }
-      if (settings.lines.show_95) {
-        labels.push("ll95", "ul95");
-      }
-      if (settings.lines.show_68) {
-        labels.push("ll68", "ul68");
       }
     }
 
@@ -763,7 +680,29 @@ export default class viewModelClass {
 
     const nLimits = controlLimits.keys.length;
 
+    // Per-group Anhøj signal state, used to dash only the centerline
+    // segments whose data-group has a signal. Falls back to all-false
+    // when Anhøj rules are disabled or the chart has no groups recorded.
+    const groupBounds: number[][] = this.groupStartEndIndexes[0] ?? [];
+    const perGroupSignals = this.outliers[0]?.per_group_signals ?? [];
+    // Pre-compute dashed flag per data-group; index by group walked in
+    // sync with i below (groups are contiguous, monotonic in i).
+    const dashedByGroup: boolean[] = groupBounds.map((_, g) => {
+      const sig = perGroupSignals[g];
+      return sig ? (sig.long_run || sig.few_crossings) : false;
+    });
+    let currentGroupIdx: number = 0;
+
     for (let i: number = 0; i < nLimits; i++) {
+      // groupBounds entries are [start, end) — advance cursor when i
+      // crosses into the next group.
+      while (currentGroupIdx < groupBounds.length
+             && i >= groupBounds[currentGroupIdx][1]) {
+        currentGroupIdx++;
+      }
+      const groupSignalDashed: boolean = currentGroupIdx < dashedByGroup.length
+                                          ? dashedByGroup[currentGroupIdx]
+                                          : false;
       const isRebaselinePoint: boolean = this.splitIndexes.includes(i - 1) || (inputData.groupingIndexes?.includes(i - 1) ?? false);
       let isNewAltTarget: boolean = false;
       if (i > 0 && settings.lines.show_alt_target && !isNullOrUndefined(controlLimits.alt_targets)) {
@@ -780,7 +719,8 @@ export default class viewModelClass {
             x: controlLimits.keys[i].x,
             line_value: (!join_rebaselines && (is_alt_target || is_rebaseline)) ? undefined : controlLimits[label as Exclude<keyof controlLimitsObject, "keys">]?.[i],
             group: label,
-            aesthetics: inputData.line_formatting[i]
+            aesthetics: inputData.line_formatting[i],
+            group_signal_dashed: groupSignalDashed
           })
         }
 
@@ -788,7 +728,8 @@ export default class viewModelClass {
           x: controlLimits.keys[i].x,
           line_value: controlLimits[label as Exclude<keyof controlLimitsObject, "keys">]?.[i],
           group: label,
-          aesthetics: inputData.line_formatting[i]
+          aesthetics: inputData.line_formatting[i],
+          group_signal_dashed: groupSignalDashed
         })
       })
     }
@@ -803,7 +744,7 @@ export default class viewModelClass {
     let lines_to_scale: Exclude<keyof controlLimitsObject, "keys">[] = ["values", "targets"];
 
     if (derivedSettings.chart_type_props.has_control_limits) {
-      lines_to_scale = lines_to_scale.concat(["ll99", "ll95", "ll68", "ul68", "ul95", "ul99"]);
+      lines_to_scale = lines_to_scale.concat(["ll99", "ul99"]);
     }
 
     let lines_to_truncate: Exclude<keyof controlLimitsObject, "keys">[] = lines_to_scale;
@@ -811,12 +752,6 @@ export default class viewModelClass {
       lines_to_truncate = lines_to_truncate.concat(["alt_targets"]);
       if (inputSettings.lines.multiplier_alt_target) {
         lines_to_scale = lines_to_scale.concat(["alt_targets"]);
-      }
-    }
-    if (inputSettings.lines.show_specification) {
-      lines_to_truncate = lines_to_truncate.concat(["speclimits_lower", "speclimits_upper"]);
-      if (inputSettings.lines.multiplier_specification) {
-        lines_to_scale = lines_to_scale.concat(["speclimits_lower", "speclimits_upper"]);
       }
     }
 
@@ -851,66 +786,91 @@ export default class viewModelClass {
 
   flagOutliers(controlLimits: controlLimitsObject, groupStartEndIndexes: number[][],
                 inputSettings: settingsValueType, derivedSettings: derivedSettingsClass): outliersObject {
-    const process_flag_type: string = inputSettings.outliers.process_flag_type;
-    const improvement_direction: string = inputSettings.outliers.improvement_direction;
-    const trend_n: number = inputSettings.outliers.trend_n;
-    const shift_n: number = inputSettings.outliers.shift_n;
-    const ast_specification: boolean = inputSettings.outliers.astronomical_limit === "Specification";
-    const two_in_three_specification: boolean = inputSettings.outliers.two_in_three_limit === "Specification";
-    const outliers = {
+    const perGroupSignals: { long_run: boolean; few_crossings: boolean }[] = [];
+    const perGroupStats: groupStatsObject[] = [];
+    const outliers: outliersObject = {
       astpoint: rep("none", controlLimits.values.length),
-      two_in_three: rep("none", controlLimits.values.length),
-      trend: rep("none", controlLimits.values.length),
-      shift: rep("none", controlLimits.values.length)
+      per_group_signals: perGroupSignals,
+      per_group_stats: perGroupStats
     }
     for (let i: number = 0; i < groupStartEndIndexes.length; i++) {
       const start: number = groupStartEndIndexes[i][0];
       const end: number = groupStartEndIndexes[i][1];
       const group_values: number[] = controlLimits.values.slice(start, end);
       const group_targets: number[] = controlLimits.targets.slice(start, end) as number[];
+      const group_signal = { long_run: false, few_crossings: false };
 
-      if (derivedSettings.chart_type_props.has_control_limits || ast_specification || two_in_three_specification) {
-        const limit_map: Record<string, string> = {
-          "1 Sigma": "68",
-          "2 Sigma": "95",
-          "3 Sigma": "99",
-          "Specification": "",
-        };
+      if (derivedSettings.chart_type_props.has_control_limits) {
         if (inputSettings.outliers.astronomical) {
-          const ast_limit: string = limit_map[inputSettings.outliers.astronomical_limit];
-          const ll_prefix: string = ast_specification ? "speclimits_lower" : "ll";
-          const ul_prefix: string = ast_specification ? "speclimits_upper" : "ul";
-          const lower_limits: number[] = controlLimits[`${ll_prefix}${ast_limit}` as Exclude<keyof controlLimitsObject, "keys">]!.slice(start, end) as number[];
-          const upper_limits: number[] = controlLimits[`${ul_prefix}${ast_limit}` as Exclude<keyof controlLimitsObject, "keys">]!.slice(start, end) as number[];
+          // Altid mod 3σ. qicharts2's sigma.signal er defineret mod
+          // kontrolgrænserne og kun dem; 1σ og 2σ findes ikke i metoden.
+          const lower_limits: number[] = controlLimits.ll99!.slice(start, end) as number[];
+          const upper_limits: number[] = controlLimits.ul99!.slice(start, end) as number[];
           astronomical(group_values, lower_limits, upper_limits)
             .forEach((flag, idx) => outliers.astpoint[start + idx] = flag)
         }
-        if (inputSettings.outliers.two_in_three) {
-          const highlight_series: boolean = inputSettings.outliers.two_in_three_highlight_series;
-          const two_in_three_limit: string = limit_map[inputSettings.outliers.two_in_three_limit];
-          const ll_prefix: string = two_in_three_specification ? "speclimits_lower" : "ll";
-          const ul_prefix: string = two_in_three_specification ? "speclimits_upper" : "ul";
-          const lower_warn_limits: number[] = controlLimits[`${ll_prefix}${two_in_three_limit}` as Exclude<keyof controlLimitsObject, "keys">]!.slice(start, end) as number[];
-          const upper_warn_limits: number[] = controlLimits[`${ul_prefix}${two_in_three_limit}` as Exclude<keyof controlLimitsObject, "keys">]!.slice(start, end) as number[];
-          twoInThree(group_values, lower_warn_limits, upper_warn_limits, highlight_series)
-            .forEach((flag, idx) => outliers.two_in_three[start + idx] = flag)
-        }
       }
-      if (inputSettings.outliers.trend) {
-        trend(group_values, trend_n)
-          .forEach((flag, idx) => outliers.trend[start + idx] = flag)
+      // Computed unconditionally: the toggles decide whether a signal dashes
+      // the centerline, not whether the counts exist. The panel shows the
+      // numbers either way, and one pass replaces two wrapper calls.
+      const runs: runsAnalysisObject = anhojRunsAnalysis(group_values, group_targets);
+      // qicharts2 forces runs.signal FALSE for chart == 'mr'. Consecutive
+      // moving ranges share a data point, so they are autocorrelated by
+      // construction and the runs analysis assumption of independence does
+      // not hold. The counts stay visible; only the verdict is withheld.
+      const runsApply: boolean = derivedSettings.chart_type_props.runs_analysis_applies;
+      if (inputSettings.outliers.anhoj_long_run && runsApply) {
+        group_signal.long_run = runs.long_run_signal;
       }
-      if (inputSettings.outliers.shift) {
-        shift(group_values, group_targets, shift_n)
-          .forEach((flag, idx) => outliers.shift[start + idx] = flag)
+      if (inputSettings.outliers.anhoj_few_crossings && runsApply) {
+        group_signal.few_crossings = runs.few_crossings_signal;
       }
+      perGroupSignals.push(group_signal);
+
+      // Points beyond the control limits, counted from ll99/ul99 rather than
+      // from the astronomical setting, which may point at spec limits or at
+      // 1/2 sigma. This is qicharts2's sigma.signal: on a control chart the
+      // expected count is 0 regardless of series length.
+      let nBeyondLimits: number | null = null;
+      if (derivedSettings.chart_type_props.has_control_limits
+          && !isNullOrUndefined(controlLimits.ll99)
+          && !isNullOrUndefined(controlLimits.ul99)) {
+        const lower_limits: number[] = controlLimits.ll99!.slice(start, end) as number[];
+        const upper_limits: number[] = controlLimits.ul99!.slice(start, end) as number[];
+        // Counted directly rather than through `astronomical`, which relies on
+        // `between` and so reports a NaN-bounded value as outside. A constant
+        // series on an I-chart produces exactly that: every moving range is 0,
+        // so the screening bound is 0, nothing falls below it, and the average
+        // becomes 0/0. That reported a series with no variation at all as
+        // entirely out of control.
+        //
+        // A limit that is not a real number is no limit, not a breached one —
+        // matching qicharts2, where `y > ucl | y < lcl` maps NA to FALSE.
+        nBeyondLimits = group_values.filter((value: number, idx: number) => {
+          if (!isValidNumber(value)) {
+            return false;
+          }
+          const lower: number = lower_limits[idx];
+          const upper: number = upper_limits[idx];
+          return (isValidNumber(upper) && value > upper)
+              || (isValidNumber(lower) && value < lower);
+        }).length;
+      }
+
+      perGroupStats.push({
+        ...runs,
+        long_run_signal: runs.long_run_signal && runsApply,
+        few_crossings_signal: runs.few_crossings_signal && runsApply,
+        n_beyond_limits: nBeyondLimits,
+        beyond_limits_signal: nBeyondLimits !== null && nBeyondLimits > 0
+      });
     }
-    Object.keys(outliers).forEach(key => {
-      for (let i = 0; i < outliers[key as keyof outliersObject].length; i++) {
-        outliers[key as keyof outliersObject][i] = checkFlagDirection(outliers[key as keyof outliersObject][i],
-                                                                      { process_flag_type, improvement_direction });
-      }
-    })
+    // astpoint bliver stående som "upper" / "lower" / "none". Tidligere blev
+    // det her oversat til improvement/deterioration/neutral ud fra hvilken vej
+    // brugeren mente var den gode. qicharts2 fortolker ikke retning —
+    // sigma.signal er en ren boolean per punkt — og vurderingen af, om et
+    // signal er godt eller skidt, afhænger af indikatoren og den kliniske
+    // kontekst, ikke af en indstilling i værktøjet.
     return outliers;
   }
 }

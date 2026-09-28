@@ -1,15 +1,15 @@
-# Privacy Policy
+# Privatlivspolitik — SPC til DAP
 
-This privacy policy applies to the PowerBI-SPC visual contained in this repository.
+**Dansk.** SPC til DAP er en Power BI-visual udgivet af Bispebjerg og
+Frederiksberg Hospital. Visualen indsamler, gemmer og sender ingen data. Den
+læser kun de felter, rapportbyggeren selv har lagt i visualen, og tegner
+diagrammet lokalt i Power BI. Den beder ikke om adgang til netværk, lokal
+lagring eller filhentning.
 
-## Collection of Personal Information
+**English.** SPC til DAP is a Power BI visual published by Bispebjerg og
+Frederiksberg Hospital. The visual does not collect, store or transmit any
+data. It reads only the fields the report author has added to it and renders
+the chart locally within Power BI. It requests no access to the network, local
+storage or file downloads.
 
-This visual does not collect, store, process, or transmit personal data.
-
-## Processing of Data
-
-This visual only accesses data provided by the user through PowerBI's Visuals API, and only processes that data for the purpose of constructing and rendering the visual in PowerBI.
-
-## Transmission of Data
-
-This visual does not transmit data outside of PowerBI, nor does it access any external services.
+Spørgsmål / questions: <https://github.com/johanreventlow/SPC-til-DAP/issues>

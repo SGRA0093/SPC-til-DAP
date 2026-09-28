@@ -46,8 +46,6 @@ import type { controlLimitsObject, controlLimitsArgs } from "../Classes/viewMode
  *   - denominators: The original sample sizes
  *   - targets: The centreline (overall rate) for each point
  *   - ll99/ul99: Lower/Upper 3-sigma control limits (lower limits truncated at 0)
- *   - ll95/ul95: Lower/Upper 2-sigma warning limits (lower limits truncated at 0)
- *   - ll68/ul68: Lower/Upper 1-sigma limits (lower limits truncated at 0)
  */
 export default function uprimeLimits(args: Readonly<controlLimitsArgs>): controlLimitsObject {
   // Extract input arrays from arguments
@@ -67,6 +65,25 @@ export default function uprimeLimits(args: Readonly<controlLimitsArgs>): control
   }
   const cl: number = sum_numerators / sum_denominators;
 
+  if (cl === 0) {
+    const rtn: controlLimitsObject = {
+      keys: args.keys,
+      values: new Array<number>(n),
+      numerators: args.numerators,
+      denominators: args.denominators,
+      targets: new Array<number>(n),
+      ll99: new Array<number>(n),
+      ul99: new Array<number>(n)
+    };
+    for (let i = 0; i < n; i++) {
+      rtn.values[i] = numerators[i] / denominators[i];
+      rtn.targets[i] = cl;
+      rtn.ll99![i] = cl;
+      rtn.ul99![i] = cl;
+    }
+    return rtn;
+  }
+
   // Calculate standard deviations for each point (based on Poisson assumption)
   let sd: number[] = new Array<number>(n);
   // Calculate values (rates) for all points
@@ -82,7 +99,7 @@ export default function uprimeLimits(args: Readonly<controlLimitsArgs>): control
   let amr: number = 0;  // Running sum for average moving range
   let prevZ: number = (val[subset_points[0]] - cl) / sd[subset_points[0]];
   for (let i = 1; i < n_sub; i++) {
-    let currZ: number = (val[subset_points[i]] - cl) / sd[subset_points[i]]
+    let currZ: number = (val[subset_points[i]] - cl) / sd[subset_points[i]];
     consec_diff[i - 1] = Math.abs(currZ - prevZ);
     amr += consec_diff[i - 1];
     prevZ = currZ;
@@ -93,7 +110,7 @@ export default function uprimeLimits(args: Readonly<controlLimitsArgs>): control
 
   // Optional outlier screening for moving range calculation
   // If outliers_in_limits is false, screen out extreme moving ranges
-  if (!args.outliers_in_limits) {
+  if (!args.outliers_in_limits && amr > 0) {
     // Upper limit for moving range: MR_limit = 3.267 × AMR (D4 constant for n=2)
     const consec_diff_ulim: number = amr * 3.267;
 
@@ -121,10 +138,6 @@ export default function uprimeLimits(args: Readonly<controlLimitsArgs>): control
     denominators: args.denominators,                       // Original sample sizes
     targets: new Array<number>(n),                         // Centreline (overall rate)
     ll99: new Array<number>(n),                            // Lower 3-sigma limit
-    ll95: new Array<number>(n),                            // Lower 2-sigma limit
-    ll68: new Array<number>(n),                            // Lower 1-sigma limit
-    ul68: new Array<number>(n),                            // Upper 1-sigma limit
-    ul95: new Array<number>(n),                            // Upper 2-sigma limit
     ul99: new Array<number>(n)                             // Upper 3-sigma limit
   }
 
@@ -133,15 +146,10 @@ export default function uprimeLimits(args: Readonly<controlLimitsArgs>): control
   for (let i = 0; i < n; i++) {
     // Calculate sigma for this sample: σ = base_sd × (MR / d2)
     const sigma: number = sd[i] * sigma_multiplier;
-    const twoSigma: number = 2 * sigma;
     const threeSigma: number = 3 * sigma;
 
     rtn.targets[i] = cl;                                   // Centreline: ū
     rtn.ll99![i] = Math.max(0, cl - threeSigma);             // LCL: max(0, ū - 3σ)
-    rtn.ll95![i] = Math.max(0, cl - twoSigma);             // 2σ lower: max(0, ū - 2σ)
-    rtn.ll68![i] = Math.max(0, cl - sigma);             // 1σ lower: max(0, ū - σ)
-    rtn.ul68![i] = cl + sigma;                          // 1σ upper: ū + σ
-    rtn.ul95![i] = cl + twoSigma;                          // 2σ upper: ū + 2σ
     rtn.ul99![i] = cl + threeSigma;                          // UCL: ū + 3σ
   }
 

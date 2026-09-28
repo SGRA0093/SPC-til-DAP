@@ -44,6 +44,18 @@ export default function drawLines(selection: svgBaseType, visualObj: Visual) {
                         : getAesthetic(currLine, "lines", "colour", { lines: currPoint.aesthetics } as settingsValueType) as string;
           strokeWidth[i] =  getAesthetic(currLine, "lines", "width", { lines: currPoint.aesthetics } as settingsValueType) as string;
           strokeDashArray[i] =  getAesthetic(currLine, "lines", "type", { lines: currPoint.aesthetics } as settingsValueType) as string;
+          // Anhøj signal: when the centerline ("targets") segment belongs
+          // to a data-group whose long-run or few-crossings signal has
+          // fired, force a dashed stroke regardless of the configured
+          // line type.
+          //
+          // Stiplingen er forbeholdt signalet: uden signal er centerlinjen
+          // altid fuldt optrukket, uanset en gemt linjetype. Ellers kunne en
+          // bruger, der har valgt en stiplet centerlinje, ikke se forskel på
+          // signal og intet signal. Linjetypen er derfor taget ud af ruden.
+          if (currLine === "targets") {
+            strokeDashArray[i] = currPoint.group_signal_dashed ? "4 2" : "10 0";
+          }
 
           if (i > 0) {
             conditionalStroke = conditionalStroke || (stroke[i] !== stroke[i - 1]);
