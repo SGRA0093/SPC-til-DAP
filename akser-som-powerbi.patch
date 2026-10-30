@@ -1,0 +1,463 @@
+diff --git a/NEWS.md b/NEWS.md
+index ffc24b8..c28d460 100644
+--- a/NEWS.md
++++ b/NEWS.md
+@@ -1,5 +1,21 @@
+ # NEWS
+ 
++## 1.0.0.1 — Akser som i Power BI's egne diagrammer
++
++* **Skriftstørrelser i point.** Aksemærker og aksetitler brugte størrelsen
++  som `px`, så 12 gav 12 px (9 pt) i stedet for 12 pt som i Power BI's egne
++  visuals. De bruger nu `pt`, og pladsen til aksetitlen er regnet om til
++  pixels. Værdietiketter og linjeetiketter bruger stadig `px`.
++* **Gitterlinjer.** Nye indstillinger under X-akse og Y-akse: Vis
++  gitterlinjer, Gitterfarve (standard `#e3e2e1`) og Gitterlinjens tykkelse.
++  Uden gitter tegnes ingen mærkestreger ved aksen. På X-aksen får kun
++  mærker med synlig etiket en gitterlinje.
++* **Aksefarve.** Standarden er ændret fra `#333333` til `#e3e2e1`, så
++  aksestregen bliver en diskret kant. Gemte værdier i eksisterende
++  rapporter er uændrede.
++* **Tusindtalsseparator på Y-aksen.** 2000 vises som 2.000 og decimaler med
++  komma. Værdietiketter er uændrede.
++
+ ## 1.0.0.0 — SPC til DAP
+ 
+ Første udgivelse under det nye navn. Visualen har eget GUID (`DAPSPC`) og
+diff --git a/capabilities.json b/capabilities.json
+index 065947c..a48a87c 100644
+--- a/capabilities.json
++++ b/capabilities.json
+@@ -506,6 +506,15 @@
+         "xlimit_colour":{
+           "type": { "fill": { "solid": { "color": true } } }
+         },
++        "xlimit_grid": {
++          "type" : { "bool" : true }
++        },
++        "xlimit_grid_colour":{
++          "type": { "fill": { "solid": { "color": true } } }
++        },
++        "xlimit_grid_width": {
++          "type": { "numeric": true }
++        },
+         "xlimit_ticks": {
+           "type" : { "bool" : true }
+         },
+@@ -552,6 +561,15 @@
+         "ylimit_colour":{
+           "type": { "fill": { "solid": { "color": true } } }
+         },
++        "ylimit_grid": {
++          "type" : { "bool" : true }
++        },
++        "ylimit_grid_colour":{
++          "type": { "fill": { "solid": { "color": true } } }
++        },
++        "ylimit_grid_width": {
++          "type": { "numeric": true }
++        },
+         "ylimit_ticks": {
+           "type" : { "bool" : true }
+         },
+diff --git a/docs/regionh-tema.md b/docs/regionh-tema.md
+index d3c9304..c56a8bc 100644
+--- a/docs/regionh-tema.md
++++ b/docs/regionh-tema.md
+@@ -20,8 +20,8 @@ sammenligne de to filer felt for felt. Det, der ændrede sig, er den globale
+ | Kontrolgrænser | `#809bbc` | temafarve 2 |
+ | Fladen mellem grænserne | `#CCD7E4` | lys tone af temafarve 2 |
+ | Punkt uden for kontrol | `#C47B00` | neutral signalfarve |
+-| Tekst, akser, rammer, mållinjer | `#333333` | `foreground` |
+-| Lys baggrund (tabelhoved) | `#e3e2e1` | `backgroundLight` |
++| Tekst, rammer, mållinjer | `#333333` | `foreground` |
++| Lys baggrund (tabelhoved), akselinjer og gitter | `#e3e2e1` | `backgroundLight` |
+ | Signalfremhævning i panelet | `#605E5C` | `lightLabel` |
+ | Skrifttype | Segoe UI | alle `textClasses` |
+ | Skriftstørrelse | 12 | `label` og `header` |
+diff --git a/docs/regionh-temauddrag.json b/docs/regionh-temauddrag.json
+index d24d266..58b712d 100644
+--- a/docs/regionh-temauddrag.json
++++ b/docs/regionh-temauddrag.json
+@@ -73,9 +73,16 @@
+         {
+           "xlimit_colour": {
+             "solid": {
+-              "color": "#333333"
++              "color": "#e3e2e1"
++            }
++          },
++          "xlimit_grid": true,
++          "xlimit_grid_colour": {
++            "solid": {
++              "color": "#e3e2e1"
+             }
+           },
++          "xlimit_grid_width": 1,
+           "xlimit_tick_colour": {
+             "solid": {
+               "color": "#333333"
+@@ -97,9 +104,16 @@
+         {
+           "ylimit_colour": {
+             "solid": {
+-              "color": "#333333"
++              "color": "#e3e2e1"
++            }
++          },
++          "ylimit_grid": true,
++          "ylimit_grid_colour": {
++            "solid": {
++              "color": "#e3e2e1"
+             }
+           },
++          "ylimit_grid_width": 1,
+           "ylimit_tick_colour": {
+             "solid": {
+               "color": "#333333"
+diff --git a/package.json b/package.json
+index 2d8df2f..cb8648e 100644
+--- a/package.json
++++ b/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "visual",
+-  "version": "1.0.0.0",
++  "version": "1.0.0.1",
+   "scripts": {
+     "pbiviz": "pbiviz",
+     "start": "pbiviz start",
+diff --git a/pbiviz.json b/pbiviz.json
+index 3fa84d1..4b8f174 100644
+--- a/pbiviz.json
++++ b/pbiviz.json
+@@ -4,7 +4,7 @@
+     "displayName":"SPC til DAP",
+     "guid":"DAPSPC",
+     "visualClassName":"Visual",
+-    "version":"1.0.0.0",
++    "version":"1.0.0.1",
+     "description":"Statistisk proceskontrol: SPC-diagrammer med automatisk signaldetektion",
+     "supportUrl":"https://github.com/johanreventlow/SPC-til-DAP/issues",
+     "gitHubUrl":"https://github.com/johanreventlow/SPC-til-DAP"
+diff --git a/src/Classes/plotPropertiesClass.ts b/src/Classes/plotPropertiesClass.ts
+index c791ee6..7915361 100644
+--- a/src/Classes/plotPropertiesClass.ts
++++ b/src/Classes/plotPropertiesClass.ts
+@@ -12,6 +12,7 @@ import type viewModelClass from "./viewModelClass";
+ import type derivedSettingsClass from "./derivedSettingsClass";
+ import type { colourPaletteType } from "./viewModelClass";
+ import scaleLinear from "../Functions/scaleLinear";
++import ptToPx from "../Functions/ptToPx";
+ 
+ export type axisProperties = {
+   lower: number,
+@@ -28,7 +29,10 @@ export type axisProperties = {
+   label: string,
+   label_size: string,
+   label_font: string,
+-  label_colour: string
++  label_colour: string,
++  grid: boolean,
++  grid_colour: string,
++  grid_width: number
+ };
+ 
+ export default class plotPropertiesClass {
+@@ -68,15 +72,18 @@ export default class plotPropertiesClass {
+       end_padding: 0,
+       colour: "#000000",
+       ticks: true,
+-      tick_size: "5px",
++      tick_size: "5pt",
+       tick_font: "sans-serif",
+       tick_colour: "#000000",
+       tick_rotation: 0,
+       tick_count: 5,
+       label: "",
+-      label_size: "12px",
++      label_size: "12pt",
+       label_font: "sans-serif",
+-      label_colour: "#000000"
++      label_colour: "#000000",
++      grid: false,
++      grid_colour: "#e3e2e1",
++      grid_width: 1
+     }
+     this.displayPlot = false;
+     this.showSignalPanel = false;
+@@ -167,11 +174,11 @@ export default class plotPropertiesClass {
+     const yTickSize: number = inputSettings.y_axis.ylimit_tick_size;
+ 
+     const leftLabelPadding: number = inputSettings.y_axis.ylimit_label
+-                                      ? inputSettings.y_axis.ylimit_label_size
++                                      ? ptToPx(inputSettings.y_axis.ylimit_label_size)
+                                       : 0;
+ 
+     const lowerLabelPadding: number = inputSettings.x_axis.xlimit_label
+-                                      ? inputSettings.x_axis.xlimit_label_size
++                                      ? ptToPx(inputSettings.x_axis.xlimit_label_size)
+                                       : 0;
+ 
+     // The panel is only worth its width when the plot keeps a usable share
+@@ -189,15 +196,18 @@ export default class plotPropertiesClass {
+       end_padding: inputSettings.canvas.right_padding + panelPadding,
+       colour: colorPalette.isHighContrast ? colorPalette.foregroundColour : inputSettings.x_axis.xlimit_colour,
+       ticks: inputSettings.x_axis.xlimit_ticks,
+-      tick_size: `${xTickSize}px`,
++      tick_size: `${xTickSize}pt`,
+       tick_font: inputSettings.x_axis.xlimit_tick_font,
+       tick_colour: colorPalette.isHighContrast ? colorPalette.foregroundColour : inputSettings.x_axis.xlimit_tick_colour,
+       tick_rotation: inputSettings.x_axis.xlimit_tick_rotation,
+       tick_count: inputSettings.x_axis.xlimit_tick_count,
+       label: inputSettings.x_axis.xlimit_label,
+-      label_size: `${inputSettings.x_axis.xlimit_label_size}px`,
++      label_size: `${inputSettings.x_axis.xlimit_label_size}pt`,
+       label_font: inputSettings.x_axis.xlimit_label_font,
+-      label_colour: colorPalette.isHighContrast ? colorPalette.foregroundColour : inputSettings.x_axis.xlimit_label_colour
++      label_colour: colorPalette.isHighContrast ? colorPalette.foregroundColour : inputSettings.x_axis.xlimit_label_colour,
++      grid: inputSettings.x_axis.xlimit_grid,
++      grid_colour: colorPalette.isHighContrast ? colorPalette.foregroundColour : inputSettings.x_axis.xlimit_grid_colour,
++      grid_width: inputSettings.x_axis.xlimit_grid_width
+     };
+ 
+     this.yAxis = {
+@@ -207,15 +217,18 @@ export default class plotPropertiesClass {
+       end_padding: inputSettings.canvas.upper_padding,
+       colour: colorPalette.isHighContrast ? colorPalette.foregroundColour : inputSettings.y_axis.ylimit_colour,
+       ticks: inputSettings.y_axis.ylimit_ticks,
+-      tick_size: `${yTickSize}px`,
++      tick_size: `${yTickSize}pt`,
+       tick_font: inputSettings.y_axis.ylimit_tick_font,
+       tick_colour: colorPalette.isHighContrast ? colorPalette.foregroundColour : inputSettings.y_axis.ylimit_tick_colour,
+       tick_rotation: inputSettings.y_axis.ylimit_tick_rotation,
+       tick_count: inputSettings.y_axis.ylimit_tick_count,
+       label: inputSettings.y_axis.ylimit_label,
+-      label_size: `${inputSettings.y_axis.ylimit_label_size}px`,
++      label_size: `${inputSettings.y_axis.ylimit_label_size}pt`,
+       label_font: inputSettings.y_axis.ylimit_label_font,
+-      label_colour: colorPalette.isHighContrast ? colorPalette.foregroundColour : inputSettings.y_axis.ylimit_label_colour
++      label_colour: colorPalette.isHighContrast ? colorPalette.foregroundColour : inputSettings.y_axis.ylimit_label_colour,
++      grid: inputSettings.y_axis.ylimit_grid,
++      grid_colour: colorPalette.isHighContrast ? colorPalette.foregroundColour : inputSettings.y_axis.ylimit_grid_colour,
++      grid_width: inputSettings.y_axis.ylimit_grid_width
+     };
+ 
+     this.initialiseScale(options.viewport.width, options.viewport.height);
+diff --git a/src/D3 Plotting Functions/drawXAxis.ts b/src/D3 Plotting Functions/drawXAxis.ts
+index 99d550a..95889e3 100644
+--- a/src/D3 Plotting Functions/drawXAxis.ts	
++++ b/src/D3 Plotting Functions/drawXAxis.ts	
+@@ -84,6 +84,13 @@ export default function drawXAxis(selection: svgBaseType, visualObj: Visual) {
+   const plotHeight: number = visualObj.viewModel.svgHeight;
+   const xAxisHeight: number = plotHeight - visualObj.plotProperties.yAxis.start_padding;
+   const displayPlot: boolean = visualObj.plotProperties.displayPlot;
++  // Gitterlinjer: aksemærkerne tegnes op gennem hele plothøjden i stedet for
++  // som små streger ved aksen. Uden gitter er der ingen mærkestreger, som i
++  // Power BI's egne diagrammer.
++  const gridHeight: number = xAxisHeight - visualObj.plotProperties.yAxis.end_padding;
++  xAxis.tickSizeOuter(0)
++       .tickSizeInner(xAxisProperties.grid && displayPlot && xAxisProperties.ticks ? -gridHeight : 0);
++
+   xAxisGroup
+       .call(xAxis)
+       .attr("color", displayPlot ? xAxisProperties.colour : "#FFFFFF")
+@@ -109,6 +116,21 @@ export default function drawXAxis(selection: svgBaseType, visualObj: Visual) {
+     hideOverlappingTickLabels(xAxisGroup.selectAll<SVGGraphicsElement, unknown>(".tick text").nodes());
+   }
+ 
++  // Gitterlinjen følger etiketten: et mærke uden synlig etiket (ingen tekst,
++  // eller skjult fordi den ville overlappe naboen) får ingen linje, ligesom
++  // i Power BI's egne diagrammer.
++  xAxisGroup.selectAll<SVGGElement, unknown>(".tick").each(function () {
++    const text: SVGTextElement | null = this.querySelector("text");
++    const line: SVGLineElement | null = this.querySelector("line");
++    if (!line) {
++      return;
++    }
++    const hasLabel: boolean = !!text && !!text.textContent && text.style.display !== "none";
++    line.style.display = hasLabel ? "" : "none";
++    line.style.stroke = xAxisProperties.grid_colour;
++    line.style.strokeWidth = String(xAxisProperties.grid_width);
++  });
++
+   const textX: number = visualObj.viewModel.svgWidth / 2;
+   let textY: number;
+ 
+diff --git a/src/D3 Plotting Functions/drawYAxis.ts b/src/D3 Plotting Functions/drawYAxis.ts
+index e205a14..9be3193 100644
+--- a/src/D3 Plotting Functions/drawYAxis.ts	
++++ b/src/D3 Plotting Functions/drawYAxis.ts	
+@@ -1,6 +1,6 @@
+ import * as d3 from "./D3 Modules";
+ import yAxisDecimals from "../Functions/yAxisDecimals";
+-import toFixedComma from "../Functions/toFixedComma";
++import toFixedGrouped from "../Functions/toFixedGrouped";
+ import type { axisProperties } from "../Classes/plotPropertiesClass";
+ import type { svgBaseType, Visual } from "../visual";
+ 
+@@ -35,8 +35,8 @@ export default function drawYAxis(selection: svgBaseType, visualObj: Visual) {
+       yAxis.tickFormat(
+         (d: number) => {
+           return derivedSettings.percentLabels
+-            ? toFixedComma(d.valueOf(), sig_figs) + "%"
+-            : toFixedComma(d.valueOf(), sig_figs);
++            ? toFixedGrouped(d.valueOf(), sig_figs) + "%"
++            : toFixedGrouped(d.valueOf(), sig_figs);
+         }
+       );
+     }
+@@ -44,6 +44,15 @@ export default function drawYAxis(selection: svgBaseType, visualObj: Visual) {
+     yAxis.tickValues([]);
+   }
+ 
++  // Gitterlinjer: aksemærkerne tegnes over hele plotbredden i stedet for som
++  // små streger ved aksen. Uden gitter er der ingen mærkestreger, som i
++  // Power BI's egne diagrammer.
++  const gridWidth: number = visualObj.viewModel.svgWidth
++                            - visualObj.plotProperties.xAxis.end_padding
++                            - visualObj.plotProperties.xAxis.start_padding;
++  yAxis.tickSizeOuter(0)
++       .tickSizeInner(yAxisProperties.grid && displayPlot && yAxisProperties.ticks ? -gridWidth : 0);
++
+   yAxisGroup
+       .call(yAxis)
+       .attr("color", displayPlot ? yAxisProperties.colour : "#FFFFFF")
+@@ -58,6 +67,10 @@ export default function drawYAxis(selection: svgBaseType, visualObj: Visual) {
+       .style("font-family", yAxisProperties.tick_font)
+       .style("fill", displayPlot ? yAxisProperties.tick_colour : "#FFFFFF");
+ 
++  yAxisGroup.selectAll(".tick line")
++            .style("stroke", yAxisProperties.grid_colour)
++            .style("stroke-width", yAxisProperties.grid_width);
++
+     let textX: number;
+     const textY: number = visualObj.viewModel.svgHeight / 2;
+     if (visualObj.viewModel.frontend) {
+diff --git a/src/Functions/ptToPx.ts b/src/Functions/ptToPx.ts
+new file mode 100644
+index 0000000..0a2ed1d
+--- /dev/null
++++ b/src/Functions/ptToPx.ts
+@@ -0,0 +1,15 @@
++/**
++ * Omregn point til CSS-pixels.
++ *
++ * Power BI angiver skriftstørrelser i point (12 i formateringsruden er
++ * 12 pt = 16 px). Bruges størrelsen ufortolket som `px`, bliver teksten
++ * en fjerdedel mindre end i Power BI's egne visuals.
++ *
++ * Bruges til pladsberegninger i pixels, hvor en størrelse i punkter skal
++ * lægges sammen med en margen. Selve teksten får enheden `pt` direkte.
++ *
++ * @param points - Størrelse i point
++ */
++export default function ptToPx(points: number): number {
++  return points * 4 / 3;
++}
+diff --git a/src/Functions/toFixedGrouped.ts b/src/Functions/toFixedGrouped.ts
+new file mode 100644
+index 0000000..21ddbc6
+--- /dev/null
++++ b/src/Functions/toFixedGrouped.ts
+@@ -0,0 +1,19 @@
++/**
++ * Formatér et tal på dansk: punktum som tusindtalsseparator, komma som
++ * decimalmarkør. Svarer til det, Power BI's egne akser viser i en dansk
++ * rapport (2.000, 1.250,5).
++ *
++ * Bruges til aksemærker. `toFixedComma` grupperer ikke og bruges stadig
++ * til værdietiketter, så de er uændrede.
++ *
++ * @param value - Tallet der skal formateres
++ * @param decimals - Antal decimaler
++ */
++export default function toFixedGrouped(value: number, decimals: number): string {
++  const fixed: string = Math.abs(value).toFixed(decimals);
++  const [integerPart, decimalPart] = fixed.split(".");
++  const grouped: string = integerPart.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
++  // Et tal, der afrundes til nul, må ikke få et minus (fx -0,0).
++  const sign: string = value < 0 && Number(fixed) !== 0 ? "-" : "";
++  return sign + grouped + (decimalPart === undefined ? "" : "," + decimalPart);
++}
+diff --git a/src/Settings Model/xAxisSettings.ts b/src/Settings Model/xAxisSettings.ts
+index e54f057..a5ed212 100644
+--- a/src/Settings Model/xAxisSettings.ts	
++++ b/src/Settings Model/xAxisSettings.ts	
+@@ -9,7 +9,10 @@ const xAxisSettings = {
+   settingsGroups: {
+     "Akse": {
+       xlimit_show: toggleOption("Vis X-akse", true),
+-      xlimit_colour: colourOption("Aksefarve", "standard"),
++      xlimit_colour: colourOption("Aksefarve", "lightgray"),
++      xlimit_grid: toggleOption("Vis gitterlinjer", true),
++      xlimit_grid_colour: colourOption("Gitterfarve", "lightgray"),
++      xlimit_grid_width: numberOption("Gitterlinjens tykkelse", 1, { min: 0, max: 10 }),
+       xlimit_l: numberOption("Nedre grænse", undefined),
+       xlimit_u: numberOption("Øvre grænse", undefined)
+     },
+diff --git a/src/Settings Model/yAxisSettings.ts b/src/Settings Model/yAxisSettings.ts
+index a2bf1b0..c22e656 100644
+--- a/src/Settings Model/yAxisSettings.ts	
++++ b/src/Settings Model/yAxisSettings.ts	
+@@ -9,7 +9,10 @@ const yAxisSettings = {
+   settingsGroups: {
+     "Akse": {
+       ylimit_show: toggleOption("Vis Y-akse", true),
+-      ylimit_colour: colourOption("Aksefarve", "standard"),
++      ylimit_colour: colourOption("Aksefarve", "lightgray"),
++      ylimit_grid: toggleOption("Vis gitterlinjer", true),
++      ylimit_grid_colour: colourOption("Gitterfarve", "lightgray"),
++      ylimit_grid_width: numberOption("Gitterlinjens tykkelse", 1, { min: 0, max: 10 }),
+       limit_multiplier: numberOption("Skaleringsfaktor", 1.5, { min: 0 }),
+       ylimit_sig_figs: {
+         ...numberOption("Antal decimaler", 0, { min: 0, max: 100 }),
+diff --git a/test/Functions/ptToPx.test.ts b/test/Functions/ptToPx.test.ts
+new file mode 100644
+index 0000000..26f7d68
+--- /dev/null
++++ b/test/Functions/ptToPx.test.ts
+@@ -0,0 +1,12 @@
++import { describe, expect, test } from "vitest";
++import ptToPx from "../../src/Functions/ptToPx";
++
++describe("ptToPx", () => {
++  test("12 pt er 16 px", () => {
++    expect(ptToPx(12)).toBeCloseTo(16, 10);
++  });
++
++  test("0 pt er 0 px", () => {
++    expect(ptToPx(0)).toBe(0);
++  });
++});
+diff --git a/test/Functions/toFixedGrouped.test.ts b/test/Functions/toFixedGrouped.test.ts
+new file mode 100644
+index 0000000..27b83dd
+--- /dev/null
++++ b/test/Functions/toFixedGrouped.test.ts
+@@ -0,0 +1,25 @@
++import { describe, expect, test } from "vitest";
++import toFixedGrouped from "../../src/Functions/toFixedGrouped";
++
++describe("toFixedGrouped", () => {
++  test("grupperer med punktum fra fire cifre og op", () => {
++    expect(toFixedGrouped(999, 0)).toBe("999");
++    expect(toFixedGrouped(2000, 0)).toBe("2.000");
++    expect(toFixedGrouped(1234567, 0)).toBe("1.234.567");
++  });
++
++  test("bruger komma som decimalmarkør", () => {
++    expect(toFixedGrouped(1250.5, 1)).toBe("1.250,5");
++    expect(toFixedGrouped(0.25, 2)).toBe("0,25");
++  });
++
++  test("negative tal får minus foran gruppen", () => {
++    expect(toFixedGrouped(-200, 0)).toBe("-200");
++    expect(toFixedGrouped(-1500, 0)).toBe("-1.500");
++  });
++
++  test("et tal, der afrundes til nul, får ikke minus", () => {
++    expect(toFixedGrouped(-0.04, 1)).toBe("0,0");
++    expect(toFixedGrouped(0, 0)).toBe("0");
++  });
++});
