@@ -73,9 +73,16 @@
         {
           "xlimit_colour": {
             "solid": {
-              "color": "#333333"
+              "color": "#e3e2e1"
             }
           },
+          "xlimit_grid": true,
+          "xlimit_grid_colour": {
+            "solid": {
+              "color": "#e3e2e1"
+            }
+          },
+          "xlimit_grid_width": 1,
           "xlimit_tick_colour": {
             "solid": {
               "color": "#333333"
@@ -97,9 +104,16 @@
         {
           "ylimit_colour": {
             "solid": {
-              "color": "#333333"
+              "color": "#e3e2e1"
             }
           },
+          "ylimit_grid": true,
+          "ylimit_grid_colour": {
+            "solid": {
+              "color": "#e3e2e1"
+            }
+          },
+          "ylimit_grid_width": 1,
           "ylimit_tick_colour": {
             "solid": {
               "color": "#333333"

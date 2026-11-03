@@ -4,7 +4,7 @@
     "displayName":"SPC til DAP",
     "guid":"DAPSPC",
     "visualClassName":"Visual",
-    "version":"1.0.0.0",
+    "version":"1.0.0.1",
     "description":"Statistisk proceskontrol: SPC-diagrammer med automatisk signaldetektion",
     "supportUrl":"https://github.com/johanreventlow/SPC-til-DAP/issues",
     "gitHubUrl":"https://github.com/johanreventlow/SPC-til-DAP"

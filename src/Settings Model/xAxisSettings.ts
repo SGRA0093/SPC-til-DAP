@@ -9,7 +9,10 @@ const xAxisSettings = {
   settingsGroups: {
     "Akse": {
       xlimit_show: toggleOption("Vis X-akse", true),
-      xlimit_colour: colourOption("Aksefarve", "standard"),
+      xlimit_colour: colourOption("Aksefarve", "lightgray"),
+      xlimit_grid: toggleOption("Vis gitterlinjer", true),
+      xlimit_grid_colour: colourOption("Gitterfarve", "lightgray"),
+      xlimit_grid_width: numberOption("Gitterlinjens tykkelse", 1, { min: 0, max: 10 }),
       xlimit_l: numberOption("Nedre grænse", undefined),
       xlimit_u: numberOption("Øvre grænse", undefined)
     },

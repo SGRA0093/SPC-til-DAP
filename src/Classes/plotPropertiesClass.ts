@@ -12,6 +12,7 @@ import type viewModelClass from "./viewModelClass";
 import type derivedSettingsClass from "./derivedSettingsClass";
 import type { colourPaletteType } from "./viewModelClass";
 import scaleLinear from "../Functions/scaleLinear";
+import ptToPx from "../Functions/ptToPx";
 
 export type axisProperties = {
   lower: number,
@@ -28,7 +29,10 @@ export type axisProperties = {
   label: string,
   label_size: string,
   label_font: string,
-  label_colour: string
+  label_colour: string,
+  grid: boolean,
+  grid_colour: string,
+  grid_width: number
 };
 
 export default class plotPropertiesClass {
@@ -68,15 +72,18 @@ export default class plotPropertiesClass {
       end_padding: 0,
       colour: "#000000",
       ticks: true,
-      tick_size: "5px",
+      tick_size: "5pt",
       tick_font: "sans-serif",
       tick_colour: "#000000",
       tick_rotation: 0,
       tick_count: 5,
       label: "",
-      label_size: "12px",
+      label_size: "12pt",
       label_font: "sans-serif",
-      label_colour: "#000000"
+      label_colour: "#000000",
+      grid: false,
+      grid_colour: "#e3e2e1",
+      grid_width: 1
     }
     this.displayPlot = false;
     this.showSignalPanel = false;
@@ -167,11 +174,11 @@ export default class plotPropertiesClass {
     const yTickSize: number = inputSettings.y_axis.ylimit_tick_size;
 
     const leftLabelPadding: number = inputSettings.y_axis.ylimit_label
-                                      ? inputSettings.y_axis.ylimit_label_size
+                                      ? ptToPx(inputSettings.y_axis.ylimit_label_size)
                                       : 0;
 
     const lowerLabelPadding: number = inputSettings.x_axis.xlimit_label
-                                      ? inputSettings.x_axis.xlimit_label_size
+                                      ? ptToPx(inputSettings.x_axis.xlimit_label_size)
                                       : 0;
 
     // The panel is only worth its width when the plot keeps a usable share
@@ -189,15 +196,18 @@ export default class plotPropertiesClass {
       end_padding: inputSettings.canvas.right_padding + panelPadding,
       colour: colorPalette.isHighContrast ? colorPalette.foregroundColour : inputSettings.x_axis.xlimit_colour,
       ticks: inputSettings.x_axis.xlimit_ticks,
-      tick_size: `${xTickSize}px`,
+      tick_size: `${xTickSize}pt`,
       tick_font: inputSettings.x_axis.xlimit_tick_font,
       tick_colour: colorPalette.isHighContrast ? colorPalette.foregroundColour : inputSettings.x_axis.xlimit_tick_colour,
       tick_rotation: inputSettings.x_axis.xlimit_tick_rotation,
       tick_count: inputSettings.x_axis.xlimit_tick_count,
       label: inputSettings.x_axis.xlimit_label,
-      label_size: `${inputSettings.x_axis.xlimit_label_size}px`,
+      label_size: `${inputSettings.x_axis.xlimit_label_size}pt`,
       label_font: inputSettings.x_axis.xlimit_label_font,
-      label_colour: colorPalette.isHighContrast ? colorPalette.foregroundColour : inputSettings.x_axis.xlimit_label_colour
+      label_colour: colorPalette.isHighContrast ? colorPalette.foregroundColour : inputSettings.x_axis.xlimit_label_colour,
+      grid: inputSettings.x_axis.xlimit_grid,
+      grid_colour: colorPalette.isHighContrast ? colorPalette.foregroundColour : inputSettings.x_axis.xlimit_grid_colour,
+      grid_width: inputSettings.x_axis.xlimit_grid_width
     };
 
     this.yAxis = {
@@ -207,15 +217,18 @@ export default class plotPropertiesClass {
       end_padding: inputSettings.canvas.upper_padding,
       colour: colorPalette.isHighContrast ? colorPalette.foregroundColour : inputSettings.y_axis.ylimit_colour,
       ticks: inputSettings.y_axis.ylimit_ticks,
-      tick_size: `${yTickSize}px`,
+      tick_size: `${yTickSize}pt`,
       tick_font: inputSettings.y_axis.ylimit_tick_font,
       tick_colour: colorPalette.isHighContrast ? colorPalette.foregroundColour : inputSettings.y_axis.ylimit_tick_colour,
       tick_rotation: inputSettings.y_axis.ylimit_tick_rotation,
       tick_count: inputSettings.y_axis.ylimit_tick_count,
       label: inputSettings.y_axis.ylimit_label,
-      label_size: `${inputSettings.y_axis.ylimit_label_size}px`,
+      label_size: `${inputSettings.y_axis.ylimit_label_size}pt`,
       label_font: inputSettings.y_axis.ylimit_label_font,
-      label_colour: colorPalette.isHighContrast ? colorPalette.foregroundColour : inputSettings.y_axis.ylimit_label_colour
+      label_colour: colorPalette.isHighContrast ? colorPalette.foregroundColour : inputSettings.y_axis.ylimit_label_colour,
+      grid: inputSettings.y_axis.ylimit_grid,
+      grid_colour: colorPalette.isHighContrast ? colorPalette.foregroundColour : inputSettings.y_axis.ylimit_grid_colour,
+      grid_width: inputSettings.y_axis.ylimit_grid_width
     };
 
     this.initialiseScale(options.viewport.width, options.viewport.height);

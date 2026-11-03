@@ -9,7 +9,10 @@ const yAxisSettings = {
   settingsGroups: {
     "Akse": {
       ylimit_show: toggleOption("Vis Y-akse", true),
-      ylimit_colour: colourOption("Aksefarve", "standard"),
+      ylimit_colour: colourOption("Aksefarve", "lightgray"),
+      ylimit_grid: toggleOption("Vis gitterlinjer", true),
+      ylimit_grid_colour: colourOption("Gitterfarve", "lightgray"),
+      ylimit_grid_width: numberOption("Gitterlinjens tykkelse", 1, { min: 0, max: 10 }),
       limit_multiplier: numberOption("Skaleringsfaktor", 1.5, { min: 0 }),
       ylimit_sig_figs: {
         ...numberOption("Antal decimaler", 0, { min: 0, max: 100 }),

@@ -20,8 +20,8 @@ sammenligne de to filer felt for felt. Det, der ændrede sig, er den globale
 | Kontrolgrænser | `#809bbc` | temafarve 2 |
 | Fladen mellem grænserne | `#CCD7E4` | lys tone af temafarve 2 |
 | Punkt uden for kontrol | `#C47B00` | neutral signalfarve |
-| Tekst, akser, rammer, mållinjer | `#333333` | `foreground` |
-| Lys baggrund (tabelhoved) | `#e3e2e1` | `backgroundLight` |
+| Tekst, rammer, mållinjer | `#333333` | `foreground` |
+| Lys baggrund (tabelhoved), akselinjer og gitter | `#e3e2e1` | `backgroundLight` |
 | Signalfremhævning i panelet | `#605E5C` | `lightLabel` |
 | Skrifttype | Segoe UI | alle `textClasses` |
 | Skriftstørrelse | 12 | `label` og `header` |
