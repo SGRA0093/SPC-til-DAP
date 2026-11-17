@@ -16,6 +16,11 @@ function buildColumn(displayName: string, queryName: string, values: any[], sett
     case "number":
       type = ValueType.fromDescriptor({ numeric: true });
       break;
+    case "object":
+      type = values[0] instanceof Date
+        ? ValueType.fromDescriptor({ dateTime: true })
+        : ValueType.fromDescriptor({ text: true });
+      break;
     default:
       type = ValueType.fromDescriptor({ text: true });
   }
@@ -37,7 +42,7 @@ function buildColumn(displayName: string, queryName: string, values: any[], sett
   };
 }
 
-export default function buildDataView(args: { key?: string[], indicator?: string[], numerators?: any[], denominators?: any[], xbar_sds?: any[], groupings?: any[] },
+export default function buildDataView(args: { key?: any[], indicator?: string[], numerators?: any[], denominators?: any[], xbar_sds?: any[], groupings?: any[] },
                                       settings?: settingsValueType): DataView {
   const metadata_columns: powerbi.DataViewMetadataColumn[] = [];
   const categories: powerbi.DataViewCategoryColumn[] = [];

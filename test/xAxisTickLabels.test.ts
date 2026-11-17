@@ -12,15 +12,16 @@ const numerators: number[] = [50, 52, 48, 51, 49, 53, 47, 50, 52, 48, 51, 49,
 const dateKeys: string[] = numerators.map((_, i) => `2024-${String((i % 12) + 1).padStart(2, "0")}-01`);
 const shortKeys: string[] = numerators.map((_, i) => String(i + 1));
 
-function render(keys: string[], width: number, overrides: (s: any) => void = () => undefined) {
+function render(keys: any[], width: number, overrides: (s: any) => void = () => undefined) {
   const element = testDom(String(width), "400");
   const visual = new Visual({ element: element, host: createVisualHost({}) });
   const settings = JSON.parse(JSON.stringify(defaultSettings));
   settings.spc.chart_type = "i";
   overrides(settings);
 
+  const values: number[] = keys.map((_, index) => numerators[index % numerators.length]);
   const update = () => visual.update({
-    dataViews: [ buildDataView({ key: keys, numerators: numerators }, settings) ],
+    dataViews: [ buildDataView({ key: keys, numerators: values }, settings) ],
     viewport: { width: width, height: 400 },
     type: 2 /*powerbi.VisualUpdateType.Data*/
   });
@@ -84,6 +85,79 @@ describe("Uroterede aksemærke-etiketter", () => {
     settings.x_axis.xlimit_tick_rotation = -35;
     update();
     expect(labels(element).hidden.length).toBe(0);
+    element.remove();
+  });
+});
+
+
+describe("Datoakse med måned- og årsniveau", () => {
+  it("roterer datoer lodret, når de ikke kan stå ved siden af hinanden", () => {
+    const dates: Date[] = Array.from({ length: 40 }, (_, index) =>
+      new Date(2026, 8, index + 1));
+    const { element } = render(dates, 1100, settings => {
+      settings.x_axis.xlimit_tick_count = 40;
+    });
+
+    const dateLabels = Array.from(element.querySelectorAll<SVGTextElement>(
+      ".xaxisgroup .tick text"
+    ));
+    const shownDateLabels = dateLabels.filter(label =>
+      label.textContent !== "" && label.style.display !== "none");
+    expect(shownDateLabels.length).toBe(40);
+    expect(shownDateLabels[0].textContent).toBe("01-09-2026");
+    expect(shownDateLabels[0].getAttribute("transform")).toBe("rotate(-90)");
+
+    const monthLabels = Array.from(element.querySelectorAll<SVGTextElement>(
+      ".xaxisgroup .date-hierarchy .month-label"
+    ));
+    const yearLabels = Array.from(element.querySelectorAll<SVGTextElement>(
+      ".xaxisgroup .date-hierarchy .year-label"
+    ));
+    expect(monthLabels.map(label => label.textContent)).toContain("september");
+    expect(monthLabels.map(label => label.textContent)).toContain("october");
+    expect(yearLabels.map(label => label.textContent)).toContain("2026");
+    element.remove();
+  });
+
+  it("respekterer Maks. antal mærker på datoaksen", () => {
+    const dates: Date[] = Array.from({ length: 40 }, (_, index) =>
+      new Date(2026, 8, index + 1));
+    const { element } = render(dates, 1100, settings => {
+      settings.x_axis.xlimit_tick_count = 6;
+    });
+
+    const shownDateLabels = Array.from(element.querySelectorAll<SVGTextElement>(
+      ".xaxisgroup .tick text"
+    )).filter(label => label.textContent !== "" && label.style.display !== "none");
+
+    expect(shownDateLabels).toHaveLength(6);
+    expect(shownDateLabels[0].textContent).toBe("01-09-2026");
+    expect(shownDateLabels[shownDateLabels.length - 1].textContent).toBe("10-10-2026");
+
+    // Måned/år-inddelingen skal fortsat bruge hele perioden, selvom kun seks
+    // datoetiketter er synlige.
+    const monthLabels = Array.from(element.querySelectorAll<SVGTextElement>(
+      ".xaxisgroup .date-hierarchy .month-label"
+    ));
+    expect(monthLabels.map(label => label.textContent)).toContain("september");
+    expect(monthLabels.map(label => label.textContent)).toContain("october");
+    element.remove();
+  });
+
+  it("viser datoer vandret, når der er plads nok", () => {
+    const dates: Date[] = Array.from({ length: 8 }, (_, index) =>
+      new Date(2026, 8, index + 1));
+    const { element } = render(dates, 1200);
+
+    const dateLabels = Array.from(element.querySelectorAll<SVGTextElement>(
+      ".xaxisgroup .tick text"
+    ));
+    const shownDateLabels = dateLabels.filter(label =>
+      label.textContent !== "" && label.style.display !== "none");
+
+    expect(shownDateLabels.length).toBe(8);
+    expect(shownDateLabels[0].getAttribute("transform")).toBe("rotate(0)");
+    expect(shownDateLabels.every(label => label.getAttribute("transform") === "rotate(0)")).toBe(true);
     element.remove();
   });
 });

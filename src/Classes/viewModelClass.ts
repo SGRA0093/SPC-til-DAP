@@ -172,7 +172,7 @@ export default class viewModelClass {
   outliers: outliersObject[];
   plotPoints: (plotData[] | plotDataGrouped[])[];
   groupedLines: [string, lineData[]][];
-  tickLabels: { x: number; label: string; }[];
+  tickLabels: { x: number; label: string; date?: Date; }[];
   splitIndexes: number[];
   groupStartEndIndexes: number[][][];
   firstRun: boolean;
@@ -554,6 +554,20 @@ export default class viewModelClass {
   }
 
   /**
+   * Samlet procesvurdering til hovedvisualiseringen. Bruger samme beregning
+   * og formatering som oversigtstabellen, så status og forklaring er ens.
+   */
+  getLatestProcessAssessment(): { status: string; text: string } | null {
+    if (this.inputSettings.settings.length !== 1 || this.inputSettings.derivedSettings.length !== 1) {
+      return null;
+    }
+    const formatValues = valueFormatter(this.inputSettings.settings[0],
+                                        this.inputSettings.derivedSettings[0]);
+    const [status, text] = this.assessLatestPhase(0, formatValues);
+    return status !== "" && text !== "" ? { status: status, text: text } : null;
+  }
+
+  /**
    * Reagér/Studér/Observér for indikator i, ud fra dens seneste fase.
    *
    * Beregnes her og ikke i flagOutliers: vurderingen skal bruge udviklingsmålet
@@ -614,7 +628,7 @@ export default class viewModelClass {
     const derivedSettings = this.inputSettings.derivedSettings[0];
 
     this.plotPoints[0] = new Array<plotData>();
-    this.tickLabels = new Array<{ x: number; label: string; }>();
+    this.tickLabels = new Array<{ x: number; label: string; date?: Date; }>();
     this.tableColumns[0] = new Array<{ name: string; label: string; }>();
 
     this.tableColumns[0].push({ name: "date", label: "Dato" });
@@ -706,7 +720,11 @@ export default class viewModelClass {
           marker_offset: undefined
         }
       })
-      this.tickLabels.push({x: index, label: controlLimits.keys[i].label});
+      this.tickLabels.push({
+        x: index,
+        label: controlLimits.keys[i].label,
+        date: derivedSettings.chart_type_props.x_axis_use_date ? inputData.dates?.[i] : undefined
+      });
     }
   }
 

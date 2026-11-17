@@ -128,6 +128,43 @@ function extractTooltips(inputView: DataViewCategorical, inputSettings: settings
 
 type ArrayUndefined<T> = T extends (infer U)[] ? Array<U | undefined> : T;
 
+/**
+ * Henter de faktiske datoværdier for x-aksen, uafhængigt af den viste
+ * datotekst. Det gør det muligt at vise datoer og måned/år-grupper på samme
+ * måde som Power BI's almindelige linjediagram.
+ */
+export function extractKeyDates(inputView: DataViewCategorical, idxs: number[]): (Date | undefined)[] | undefined {
+  const columns: powerbi.DataViewCategoryColumn[] = (inputView.categories ?? [])
+    .filter(column => column.source?.roles?.key && column.source?.type?.temporal);
+  if (columns.length === 0) {
+    return undefined;
+  }
+
+  // Date Hierarchy-kolonner deler query-navn, når det sidste niveau
+  // (Year/Quarter/Month/Day) fjernes. Andre datofelter holdes adskilt.
+  const groupedColumns: Record<string, powerbi.DataViewCategoryColumn[]> = {};
+  const seenQueryNames = new Set<string>();
+  columns.forEach((column, index) => {
+    let queryName: string = column.source?.queryName ?? `date-${index}`;
+    if (queryName.includes("Date Hierarchy")) {
+      const lastDotIndex: number = queryName.lastIndexOf(".");
+      if (lastDotIndex !== -1) {
+        queryName = queryName.substring(0, lastDotIndex);
+      }
+    }
+    if (seenQueryNames.has(queryName)) {
+      queryName = `${index}_${queryName}`;
+    }
+    seenQueryNames.add(queryName);
+    (groupedColumns[queryName] ??= []).push(column);
+  });
+
+  // Vælg den første komplette datogruppering. Hvis x-aksen også indeholder
+  // andre nøgler, påvirker de ikke datoernes placering eller gruppering.
+  const dateGroup: powerbi.DataViewCategoryColumn[] = Object.values(groupedColumns)[0];
+  return parseInputDates(dateGroup, idxs).dates;
+}
+
 export default function extractDataColumn<T extends TargetT>(inputView: DataViewCategorical,
                                               name: string,
                                               inputSettings: settingsValueType,

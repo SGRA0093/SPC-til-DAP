@@ -202,7 +202,10 @@ export default function drawSignalPanel(selection: svgBaseType, visualObj: Visua
     ? buildSignalPanelBlocks(perGroupStats, settings, enabled)
     : [];
 
-  if (blocks.length === 0) {
+  const assessment = visualObj.plotProperties.showSignalPanel
+    ? visualObj.viewModel.getLatestProcessAssessment()
+    : null;
+  if (blocks.length === 0 && assessment === null) {
     selection.select(".signal-panel").remove();
     return;
   }
@@ -328,5 +331,53 @@ export default function drawSignalPanel(selection: svgBaseType, visualObj: Visua
       cursor += rowHeight + ROW_GAP;
     }
     cursor += ROW_GAP;
+  }
+
+  // Samlet vurdering placeres under SPC-nøgletallene i samme højre panel.
+  // Hele forklaringen ligger i SVG-titlen, så den er tilgængelig som tooltip
+  // uden at optage den begrænsede højde i visualiseringen.
+  if (assessment !== null) {
+    const assessmentGap: number = style.labelSize * 1.5;
+    const headingSize: number = Math.max(9, style.labelSize);
+    const statusSize: number = Math.max(10, style.numberSize);
+    const subtitle: string = assessment.text.split("\n")[1] ?? "";
+    cursor += assessmentGap;
+    if (fits(cursor + headingSize * LINE_HEIGHT)) {
+      appendText(panel, "PROCESVURDERING", left, cursor + headingSize,
+                 headingSize, style.textColour, "start")
+        .style("font-weight", "bold");
+      cursor += headingSize * LINE_HEIGHT + 3;
+    }
+    if (fits(cursor + statusSize * 1.5)) {
+      const statusColours: Record<string, string> = {
+        "Reagér": "#C62828",
+        "Studér": "#B7791F",
+        "Observér": "#2E7D32"
+      };
+      const fill: string = highContrast ? palette.foregroundColour
+                                        : (statusColours[assessment.status] ?? HEADER_COLOUR);
+      const textColour: string = highContrast ? palette.backgroundColour : SIGNAL_TEXT_COLOUR;
+      const statusGroup = panel.append("g").classed("process-assessment", true);
+      statusGroup.append("title").text(assessment.text);
+      const statusText = appendText(statusGroup, assessment.status.toUpperCase(),
+                                    left + 7, cursor + statusSize, statusSize,
+                                    textColour, "start")
+        .style("font-weight", "bold");
+      const statusWidth: number = measureText(statusText,
+        assessment.status.length * statusSize * CHAR_WIDTH, style.headless);
+      statusGroup.insert("rect", () => statusText.node())
+        .attr("x", left)
+        .attr("y", cursor + 1)
+        .attr("width", Math.min(right - left, statusWidth + 14))
+        .attr("height", statusSize * 1.35)
+        .attr("rx", 2)
+        .style("fill", fill);
+      cursor += statusSize * 1.35 + 5;
+    }
+    if (subtitle !== "" && fits(cursor + style.labelSize * LINE_HEIGHT)) {
+      const subtitleText = appendText(panel, subtitle, left,
+        cursor + style.labelSize, style.labelSize, style.labelColour, "start");
+      fitText(subtitleText, right - left, style.headless);
+    }
   }
 }
