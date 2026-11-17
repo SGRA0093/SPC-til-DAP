@@ -84,6 +84,13 @@ export default function drawXAxis(selection: svgBaseType, visualObj: Visual) {
   const plotHeight: number = visualObj.viewModel.svgHeight;
   const xAxisHeight: number = plotHeight - visualObj.plotProperties.yAxis.start_padding;
   const displayPlot: boolean = visualObj.plotProperties.displayPlot;
+  // Gitterlinjer: aksemærkerne tegnes op gennem hele plothøjden i stedet for
+  // som små streger ved aksen. Uden gitter er der ingen mærkestreger, som i
+  // Power BI's egne diagrammer.
+  const gridHeight: number = xAxisHeight - visualObj.plotProperties.yAxis.end_padding;
+  xAxis.tickSizeOuter(0)
+       .tickSizeInner(xAxisProperties.grid && displayPlot && xAxisProperties.ticks ? -gridHeight : 0);
+
   xAxisGroup
       .call(xAxis)
       .attr("color", displayPlot ? xAxisProperties.colour : "#FFFFFF")
@@ -108,6 +115,21 @@ export default function drawXAxis(selection: svgBaseType, visualObj: Visual) {
   if (tickRotation === 0.0) {
     hideOverlappingTickLabels(xAxisGroup.selectAll<SVGGraphicsElement, unknown>(".tick text").nodes());
   }
+
+  // Gitterlinjen følger etiketten: et mærke uden synlig etiket (ingen tekst,
+  // eller skjult fordi den ville overlappe naboen) får ingen linje, ligesom
+  // i Power BI's egne diagrammer.
+  xAxisGroup.selectAll<SVGGElement, unknown>(".tick").each(function () {
+    const text: SVGTextElement | null = this.querySelector("text");
+    const line: SVGLineElement | null = this.querySelector("line");
+    if (!line) {
+      return;
+    }
+    const hasLabel: boolean = !!text && !!text.textContent && text.style.display !== "none";
+    line.style.display = hasLabel ? "" : "none";
+    line.style.stroke = xAxisProperties.grid_colour;
+    line.style.strokeWidth = String(xAxisProperties.grid_width);
+  });
 
   const textX: number = visualObj.viewModel.svgWidth / 2;
   let textY: number;

@@ -506,6 +506,15 @@
         "xlimit_colour":{
           "type": { "fill": { "solid": { "color": true } } }
         },
+        "xlimit_grid": {
+          "type" : { "bool" : true }
+        },
+        "xlimit_grid_colour":{
+          "type": { "fill": { "solid": { "color": true } } }
+        },
+        "xlimit_grid_width": {
+          "type": { "numeric": true }
+        },
         "xlimit_ticks": {
           "type" : { "bool" : true }
         },
@@ -551,6 +560,15 @@
         },
         "ylimit_colour":{
           "type": { "fill": { "solid": { "color": true } } }
+        },
+        "ylimit_grid": {
+          "type" : { "bool" : true }
+        },
+        "ylimit_grid_colour":{
+          "type": { "fill": { "solid": { "color": true } } }
+        },
+        "ylimit_grid_width": {
+          "type": { "numeric": true }
         },
         "ylimit_ticks": {
           "type" : { "bool" : true }

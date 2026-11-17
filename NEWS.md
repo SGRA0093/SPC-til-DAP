@@ -1,5 +1,21 @@
 # NEWS
 
+## 1.0.0.1 — Akser som i Power BI's egne diagrammer
+
+* **Skriftstørrelser i point.** Aksemærker og aksetitler brugte størrelsen
+  som `px`, så 12 gav 12 px (9 pt) i stedet for 12 pt som i Power BI's egne
+  visuals. De bruger nu `pt`, og pladsen til aksetitlen er regnet om til
+  pixels. Værdietiketter og linjeetiketter bruger stadig `px`.
+* **Gitterlinjer.** Nye indstillinger under X-akse og Y-akse: Vis
+  gitterlinjer, Gitterfarve (standard `#e3e2e1`) og Gitterlinjens tykkelse.
+  Uden gitter tegnes ingen mærkestreger ved aksen. På X-aksen får kun
+  mærker med synlig etiket en gitterlinje.
+* **Aksefarve.** Standarden er ændret fra `#333333` til `#e3e2e1`, så
+  aksestregen bliver en diskret kant. Gemte værdier i eksisterende
+  rapporter er uændrede.
+* **Tusindtalsseparator på Y-aksen.** 2000 vises som 2.000 og decimaler med
+  komma. Værdietiketter er uændrede.
+
 ## 1.0.0.0 — SPC til DAP
 
 Første udgivelse under det nye navn. Visualen har eget GUID (`DAPSPC`) og

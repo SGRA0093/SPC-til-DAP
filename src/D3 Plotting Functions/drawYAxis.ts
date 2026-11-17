@@ -1,6 +1,6 @@
 import * as d3 from "./D3 Modules";
 import yAxisDecimals from "../Functions/yAxisDecimals";
-import toFixedComma from "../Functions/toFixedComma";
+import toFixedGrouped from "../Functions/toFixedGrouped";
 import type { axisProperties } from "../Classes/plotPropertiesClass";
 import type { svgBaseType, Visual } from "../visual";
 
@@ -35,14 +35,23 @@ export default function drawYAxis(selection: svgBaseType, visualObj: Visual) {
       yAxis.tickFormat(
         (d: number) => {
           return derivedSettings.percentLabels
-            ? toFixedComma(d.valueOf(), sig_figs) + "%"
-            : toFixedComma(d.valueOf(), sig_figs);
+            ? toFixedGrouped(d.valueOf(), sig_figs) + "%"
+            : toFixedGrouped(d.valueOf(), sig_figs);
         }
       );
     }
   } else {
     yAxis.tickValues([]);
   }
+
+  // Gitterlinjer: aksemærkerne tegnes over hele plotbredden i stedet for som
+  // små streger ved aksen. Uden gitter er der ingen mærkestreger, som i
+  // Power BI's egne diagrammer.
+  const gridWidth: number = visualObj.viewModel.svgWidth
+                            - visualObj.plotProperties.xAxis.end_padding
+                            - visualObj.plotProperties.xAxis.start_padding;
+  yAxis.tickSizeOuter(0)
+       .tickSizeInner(yAxisProperties.grid && displayPlot && yAxisProperties.ticks ? -gridWidth : 0);
 
   yAxisGroup
       .call(yAxis)
@@ -57,6 +66,10 @@ export default function drawYAxis(selection: svgBaseType, visualObj: Visual) {
       .style("font-size", yAxisProperties.tick_size)
       .style("font-family", yAxisProperties.tick_font)
       .style("fill", displayPlot ? yAxisProperties.tick_colour : "#FFFFFF");
+
+  yAxisGroup.selectAll(".tick line")
+            .style("stroke", yAxisProperties.grid_colour)
+            .style("stroke-width", yAxisProperties.grid_width);
 
     let textX: number;
     const textY: number = visualObj.viewModel.svgHeight / 2;
