@@ -619,6 +619,9 @@
         "show_table": {
           "type" : { "bool" : true }
         },
+        "show_assessment": {
+          "type" : { "bool" : true }
+        },
         "table_opacity": {
           "type": { "numeric": true }
         },

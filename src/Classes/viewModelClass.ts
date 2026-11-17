@@ -19,6 +19,8 @@ import valueFormatter from "../Functions/valueFormatter";
 import groupBy from "../Functions/groupBy";
 import astronomical from "../Outlier Flagging/astronomical";
 import { anhojRunsAnalysis, type runsAnalysisObject } from "../Outlier Flagging/anhojShared";
+import { assessProcess, statusLabel, type processAssessment } from "../Outlier Flagging/processAssessment";
+import { buildAssessmentText } from "../Functions/assessmentText";
 import { lineNameMap } from "../Functions/getAesthetic";
 import isValidNumber from "../Functions/isValidNumber";
 import seq from "../Functions/seq";
@@ -464,6 +466,9 @@ export default class viewModelClass {
       tableColumnsDef.push({ name: indicator_name, label: indicator_name });
     })
     tableColumnsDef.push({ name: "latest_date", label: "Seneste dato" });
+    if (this.inputSettings.settings[0].summary_table.show_assessment) {
+      tableColumnsDef.push({ name: "assessment", label: "Vurdering" });
+    }
 
     const lineSettings = this.inputSettings.settings[0].lines;
     if (lineSettings.show_main) {
@@ -516,6 +521,9 @@ export default class viewModelClass {
         table_row_entries.push([indicator_name, this.groupNames[i][idx]]);
       })
       table_row_entries.push(["latest_date", limits.keys?.[lastIndex].label]);
+      const assessment: [string, string] = this.assessLatestPhase(i, formatValues);
+      table_row_entries.push(["assessment", assessment[0]]);
+      table_row_entries.push(["assessment_text", assessment[1]]);
       table_row_entries.push(["value", formatValues(limits.values?.[lastIndex], "value")]);
       table_row_entries.push(["numerator", formatValues(limits.numerators?.[lastIndex], "integer")]);
       table_row_entries.push(["denominator", formatValues(limits.denominators?.[lastIndex], "integer")]);
@@ -543,6 +551,58 @@ export default class viewModelClass {
 
       this.tableColumns[i] = tableColumnsDef;
     }
+  }
+
+  /**
+   * Reagér/Studér/Observér for indikator i, ud fra dens seneste fase.
+   *
+   * Beregnes her og ikke i flagOutliers: vurderingen skal bruge udviklingsmålet
+   * og linjerne i den skala, de vises i (efter multiplikatoren), og
+   * flagOutliers kører før skaleringen.
+   *
+   * @returns [statusord, fuld tekst] — begge tomme, når serien er for kort
+   */
+  assessLatestPhase(i: number,
+                    formatValues: (value: number | undefined, name: string) => string): [string, string] {
+    const settings: settingsValueType = this.inputSettings.settings[i];
+    const derived: derivedSettingsClass = this.inputSettings.derivedSettings[i];
+    const limits: controlLimitsObject = this.controlLimits[i];
+    const perGroupStats: groupStatsObject[] = this.outliers[i]?.per_group_stats ?? [];
+    const bounds: number[][] = this.groupStartEndIndexes[i] ?? [];
+    if (perGroupStats.length === 0 || bounds.length === 0) {
+      return ["", ""];
+    }
+    const stats: groupStatsObject = perGroupStats[perGroupStats.length - 1];
+    const [start, end]: number[] = bounds[bounds.length - 1];
+    const lastIndex: number = limits.keys.length - 1;
+
+    const nPoints: number = limits.values.slice(start, end).filter(d => isValidNumber(d)).length;
+    const centerline: number | undefined = limits.targets?.[lastIndex];
+    const target: number | undefined = limits.alt_targets?.[lastIndex];
+
+    const assessment: processAssessment | null = assessProcess({
+      n_points: nPoints,
+      long_run_signal: stats.long_run_signal && settings.outliers.anhoj_long_run,
+      few_crossings_signal: stats.few_crossings_signal && settings.outliers.anhoj_few_crossings,
+      centerline: centerline,
+      latest: limits.values?.[lastIndex],
+      target: target,
+      operator: settings.lines.operator_alt_target
+    });
+    if (assessment === null) {
+      return ["", ""];
+    }
+    const text: string = buildAssessmentText(assessment, {
+      n_points: nPoints,
+      longest_run: stats.longest_run,
+      longest_run_max: stats.longest_run_max,
+      n_crossings: stats.n_crossings,
+      n_crossings_min: stats.n_crossings_min,
+      centerline_text: formatValues(centerline, "value"),
+      target_text: formatValues(target, "value"),
+      centerline_noun: derived.chart_type_props.name === "run" ? "median" : "centerlinje"
+    });
+    return [statusLabel(assessment.status), text];
   }
 
   initialisePlotData(host: IVisualHost): void {

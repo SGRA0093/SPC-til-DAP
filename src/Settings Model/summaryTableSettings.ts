@@ -11,6 +11,9 @@ const summaryTableSettings = {
   settingsGroups: {
     "Generelt": {
       show_table: toggleOption("Vis oversigtstabel", false),
+      // Reagér/Studér/Observér for hver indikators seneste fase. Den fulde
+      // tekst vises som tooltip på cellen.
+      show_assessment: toggleOption("Vis vurdering (Reagér/Studér/Observér)", true),
       table_text_overflow: dropdownOption("Tekstoverløb", "ellipsis", ["ellipsis", "clip", "none"], "none", ["Udeladelsesprikker (…)", "Klip", "Ingen"]),
       table_opacity: numberOption("Gennemsigtighed", 1, { min: 0, max: 1 }),
       table_opacity_selected: numberOption("Gennemsigtighed (valgt)", 1, { min: 0, max: 1 }),
