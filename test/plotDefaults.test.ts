@@ -75,7 +75,7 @@ describe("Plottets defaults", () => {
     expect(tick!.getAttribute("transform")).toBe("rotate(0)");
     expect(tick!.style.textAnchor).toBe("middle");
     expect(tick!.getAttribute("dx")).toBe("0");
-    expect(tick!.style.fontSize).toBe("12px");
+    expect(tick!.style.fontSize).toBe("12pt");
     expect(tick!.style.fontFamily).toContain("Segoe UI");
     element.remove();
   });
