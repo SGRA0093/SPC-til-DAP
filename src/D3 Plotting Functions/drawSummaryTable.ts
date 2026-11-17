@@ -142,6 +142,11 @@ function drawTableCells(selection: divBaseType, cols: { name: string; label: str
       : (d.value ?? "");
 
     currNode.text(value).classed("cell-text", true);
+    // Vurderingens fulde tekst er for lang til en celle og vises som tooltip.
+    if (d.column === "assessment") {
+      const fullText: string = ((rowData.table_row as any).assessment_text ?? "") as string;
+      currNode.attr("title", fullText === "" ? null : fullText);
+    }
     const tableAesthetics: settingsValueType["summary_table"]
       = ("table_body_bg_colour" in rowData.aesthetics)
                               ? rowData.aesthetics as any
