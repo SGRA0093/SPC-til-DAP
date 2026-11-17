@@ -1,5 +1,8 @@
 # NEWS
 
+## 1.0.0.2 — Vurdering: Reagér, Studér, Observér.
+
+
 ## 1.0.0.1 — Akser som i Power BI's egne diagrammer
 
 * **Skriftstørrelser i point.** Aksemærker og aksetitler brugte størrelsen
