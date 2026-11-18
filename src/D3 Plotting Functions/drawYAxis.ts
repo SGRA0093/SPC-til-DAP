@@ -67,6 +67,9 @@ export default function drawYAxis(selection: svgBaseType, visualObj: Visual) {
       .style("font-family", yAxisProperties.tick_font)
       .style("fill", displayPlot ? yAxisProperties.tick_colour : "#FFFFFF");
 
+  // Remove only the vertical axis baseline; horizontal grid lines and labels remain.
+  yAxisGroup.select(".domain").style("display", "none");
+
   yAxisGroup.selectAll(".tick line")
             .style("stroke", yAxisProperties.grid_colour)
             .style("stroke-width", yAxisProperties.grid_width);

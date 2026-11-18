@@ -144,7 +144,7 @@ describe("Datoakse med måned- og årsniveau", () => {
     element.remove();
   });
 
-  it("viser altid datoer lodret, også når der er plads til at lægge dem vandret", () => {
+  it("viser datoer vandret, når der er plads", () => {
     const dates: Date[] = Array.from({ length: 8 }, (_, index) =>
       new Date(2026, 8, index + 1));
     const { element } = render(dates, 1200);
@@ -154,7 +154,8 @@ describe("Datoakse med måned- og årsniveau", () => {
     )).filter(label => label.textContent !== "" && label.style.display !== "none");
 
     expect(shownDateLabels.length).toBe(8);
-    expect(shownDateLabels.every(label => label.getAttribute("transform") === "rotate(-90)")).toBe(true);
+    expect(shownDateLabels.every(label => label.getAttribute("transform") === "rotate(0)")).toBe(true);
+    expect(shownDateLabels.every(label => label.style.display !== "none")).toBe(true);
     element.remove();
   });
 
@@ -169,6 +170,54 @@ describe("Datoakse med måned- og årsniveau", () => {
       ".xaxisgroup .tick text"
     )).filter(label => label.textContent !== "");
     expect(dateLabels.every(label => label.getAttribute("transform") === "rotate(-45)")).toBe(true);
+    element.remove();
+  });
+
+  it("beholder måned og år synlige ved perioder på to, tre og fire måneder", () => {
+    for (const monthCount of [2, 3, 4]) {
+      const dates: Date[] = Array.from({ length: monthCount }, (_, index) =>
+        new Date(2025, 8 + index, 1));
+      const { element } = render(dates, 260, settings => {
+        settings.x_axis.xlimit_tick_count = monthCount;
+      });
+
+      const monthLabels = Array.from(element.querySelectorAll<SVGTextElement>(
+        ".xaxisgroup .date-hierarchy .month-label"
+      ));
+      const yearLabels = Array.from(element.querySelectorAll<SVGTextElement>(
+        ".xaxisgroup .date-hierarchy .year-label"
+      ));
+
+      expect(monthLabels).toHaveLength(monthCount);
+      expect(monthLabels.every(label => (label.textContent ?? "").trim().length > 0)).toBe(true);
+      expect(yearLabels.length).toBeGreaterThan(0);
+      expect(yearLabels.every(label => (label.textContent ?? "").trim().length > 0)).toBe(true);
+      expect(yearLabels.map(label => label.textContent)).toContain("2025");
+      element.remove();
+    }
+  });
+
+  it("beholder begge årstal, når en tremånedersperiode krydser et årsskifte", () => {
+    const dates: Date[] = [
+      new Date(2025, 10, 1),
+      new Date(2025, 11, 1),
+      new Date(2026, 0, 1)
+    ];
+    const { element } = render(dates, 260, settings => {
+      settings.x_axis.xlimit_tick_count = 3;
+    });
+
+    const monthLabels = Array.from(element.querySelectorAll<SVGTextElement>(
+      ".xaxisgroup .date-hierarchy .month-label"
+    ));
+    const yearLabels = Array.from(element.querySelectorAll<SVGTextElement>(
+      ".xaxisgroup .date-hierarchy .year-label"
+    ));
+
+    expect(monthLabels).toHaveLength(3);
+    expect(monthLabels.every(label => (label.textContent ?? "").trim().length > 0)).toBe(true);
+    expect(yearLabels.map(label => label.textContent)).toContain("2025");
+    expect(yearLabels.map(label => label.textContent)).toContain("2026");
     element.remove();
   });
 
@@ -205,6 +254,11 @@ describe("Datoakse med måned- og årsniveau", () => {
     )!;
 
     expect(dividers.length).toBeGreaterThan(0);
+    const monthBoundaries = Array.from(element.querySelectorAll<SVGLineElement>(
+      ".xaxisgroup .date-hierarchy .month-boundary"
+    ));
+    expect(monthBoundaries.length).toBeGreaterThan(0);
+    expect(monthBoundaries.every(line => line.getAttribute("stroke-opacity") === "0")).toBe(true);
     for (const divider of dividers) {
       // 0 er aksens baseline i gruppens egne koordinater.
       expect(Number(divider.getAttribute("y1"))).toBe(0);

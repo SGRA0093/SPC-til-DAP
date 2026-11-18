@@ -41,7 +41,7 @@ function formatDateTick(date: Date, locale: string): string {
 }
 
 type DateTick = { x: number; date: Date };
-type DateGroup = { key: string; label: string; year: number; first: number; last: number };
+type DateGroup = { key: string; label: string; year: number; month: number; first: number; last: number };
 
 /**
  * Begrænser datoetiketterne til det maksimale antal, som brugeren har valgt.
@@ -71,6 +71,43 @@ function limitDateTicks(ticks: DateTick[], configuredMaximum: number): DateTick[
   return selected;
 }
 
+type fittedLabel = { text: string; fontSize: string };
+
+/**
+ * Keeps month labels visible when the month band is narrow: use the full
+ * localized month name when it fits, then its localized short form, and
+ * finally a two-digit month number. The font is reduced only as needed.
+ */
+function fitMonthLabel(
+  group: DateGroup,
+  availableWidth: number,
+  locale: string,
+  fontPx: number,
+  fontPt: number
+): fittedLabel {
+  const shortLabel: string = new Intl.DateTimeFormat(locale, { month: "short" })
+    .format(new Date(group.year, group.month, 1))
+    .toLocaleLowerCase(locale)
+    .replace(/[.]$/, "");
+  const candidates: string[] = [
+    group.label,
+    shortLabel,
+    String(group.month + 1).padStart(2, "0")
+  ];
+  const text: string = candidates.find(candidate =>
+    candidate.length * fontPx * 0.55 <= availableWidth
+  ) ?? candidates[candidates.length - 1];
+  const estimatedWidth: number = Math.max(1, text.length * fontPx * 0.55);
+  const scale: number = Math.min(1, availableWidth > 0 ? availableWidth / estimatedWidth : 1);
+  return { text, fontSize: `${Math.max(5, fontPt * scale)}pt` };
+}
+
+function fitBandFontSize(label: string, availableWidth: number, fontPx: number, fontPt: number): string {
+  const estimatedWidth: number = Math.max(1, label.length * fontPx * 0.55);
+  const scale: number = Math.min(1, availableWidth > 0 ? availableWidth / estimatedWidth : 1);
+  return `${Math.max(5, fontPt * scale)}pt`;
+}
+
 function groupDatesByMonth(ticks: DateTick[], locale: string): DateGroup[] {
   const groups: DateGroup[] = [];
   for (const tick of ticks) {
@@ -85,7 +122,7 @@ function groupDatesByMonth(ticks: DateTick[], locale: string): DateGroup[] {
     const label: string = new Intl.DateTimeFormat(locale, { month: "long" })
       .format(tick.date)
       .toLocaleLowerCase(locale);
-    groups.push({ key, label, year, first: tick.x, last: tick.x });
+    groups.push({ key, label, year, month, first: tick.x, last: tick.x });
   }
   return groups;
 }
@@ -127,7 +164,7 @@ function addDateHierarchy(
     : Math.max(42, fontPx * 5.2);
   // .xaxisgroup er allerede flyttet ned til aksens baseline. Koordinaterne
   // her skal derfor være lokale for gruppen og ikke indeholde xAxisHeight.
-  const monthLineY: number = dateLabelDepth + 5;
+  const monthLineY: number = dateLabelDepth + 14;
   const monthTextY: number = monthLineY + rowTextOffset;
   const yearLineY: number = monthLineY + rowHeight;
   const yearTextY: number = yearLineY + rowTextOffset;
@@ -176,6 +213,9 @@ function addDateHierarchy(
     .attr("y1", monthLineY)
     .attr("y2", monthLineY)
     .attr("stroke", separatorColour)
+    // Behold geometry for month layout, but do not draw a horizontal line
+    // between the date labels and the month names.
+    .attr("stroke-opacity", 0)
     .attr("stroke-width", lineWidth);
 
   hierarchy.selectAll<SVGLineElement, typeof monthBounds[number]>(".month-divider")
@@ -198,12 +238,14 @@ function addDateHierarchy(
     .attr("x", d => (d.left + d.right) / 2)
     .attr("y", monthTextY)
     .attr("text-anchor", "middle")
-    .style("font-size", `${dateFontPt}pt`)
+    .style("font-size", d => fitMonthLabel(
+      d.group, Math.max(0, d.right - d.left - 4), locale, fontPx, dateFontPt
+    ).fontSize)
     .style("font-family", xAxisProperties.tick_font)
     .style("fill", labelColour)
-    .text(d => d.right - d.left >= d.group.label.length * fontPx * 0.55
-      ? d.group.label
-      : "");
+    .text(d => fitMonthLabel(
+      d.group, Math.max(0, d.right - d.left - 4), locale, fontPx, dateFontPt
+    ).text);
 
   hierarchy.selectAll<SVGLineElement, typeof yearBounds[number]>(".year-boundary")
     .data(yearBounds)
@@ -223,7 +265,9 @@ function addDateHierarchy(
     .attr("x", d => (d.left + d.right) / 2)
     .attr("y", yearTextY)
     .attr("text-anchor", "middle")
-    .style("font-size", `${dateFontPt}pt`)
+    .style("font-size", d => fitBandFontSize(
+      d.group.label, Math.max(0, d.right - d.left - 4), fontPx, dateFontPt
+    ))
     .style("font-family", xAxisProperties.tick_font)
     .style("fill", labelColour)
     .text(d => d.group.label);
@@ -263,12 +307,10 @@ export default function drawXAxis(selection: svgBaseType, visualObj: Visual) {
     xAxisProperties.tick_count
   );
   const locale: string = getDateLocale(visualObj);
-  // Datoer står altid lodret, som i Power BI's linjediagram. Rotationen
-  // 0 er standarden og betyder her "lodret"; en eksplicit anden rotation fra
-  // brugeren respekteres stadig.
-  const tickRotation: number = useDateHierarchy && xAxisProperties.tick_rotation === 0
-    ? -90
-    : xAxisProperties.tick_rotation;
+  // For datoakser betyder standardrotationen (0), at layoutet selv vælger:
+  // vandret, hvis alle etiketter kan være der, ellers lodret. En eksplicit
+  // rotation fra brugeren respekteres altid.
+  let tickRotation: number = xAxisProperties.tick_rotation;
   const xAxis: d3.Axis<number> = d3.axisBottom(visualObj.plotProperties.xScale);
 
   // D3's axis call updates its own ticks, but does not remove custom children
@@ -331,12 +373,18 @@ export default function drawXAxis(selection: svgBaseType, visualObj: Visual) {
 
   applyTickTextLayout(tickRotation);
 
-  // Når etiketterne er roteret, giver rotationen i sig selv plads mellem
-  // datoerne, og antallet styres af "Maks. antal mærker". Skjul derfor kun
-  // overlappende etiketter i vandret visning. Det sikrer også, at en ny
-  // optegning med rotation kan genskabe etiketter, som blev skjult i den
-  // foregående vandrette optegning: applyTickTextLayout nulstiller dem.
-  if (tickRotation === 0) {
+  // Standardlayout for datoer prøver først vandret visning. Hvis etiketterne
+  // overlapper, drejes alle datoer lodret. applyTickTextLayout nulstiller
+  // display-stilen, så etiketter skjult ved en tidligere optegning genskabes.
+  if (useDateHierarchy && xAxisProperties.tick_rotation === 0) {
+    hideOverlappingTickLabels(tickText.nodes());
+    const hasOverlappingLabels: boolean = tickText.nodes()
+      .some(label => label.style.display === "none");
+    if (hasOverlappingLabels) {
+      tickRotation = -90;
+      applyTickTextLayout(tickRotation);
+    }
+  } else if (tickRotation === 0) {
     hideOverlappingTickLabels(tickText.nodes());
   }
 

@@ -34,7 +34,30 @@ export default function drawTooltipLine(selection: svgBaseType, visualObj: Visua
     const plotPoints: plotData[] = visualObj.viewModel.plotPoints[0] as plotData[]
 
     const boundRect = (visualObj.svg.node() as SVGSVGElement).getBoundingClientRect();
-    const xValue: number = (event.pageX - boundRect.left);
+    const svgWidth: number = visualObj.viewModel.svgWidth;
+    const svgHeight: number = visualObj.viewModel.svgHeight;
+    // Convert viewport coordinates to the SVG's internal coordinate system,
+    // including when the visual is scaled in the Power BI canvas.
+    const scaleX: number = boundRect.width > 0 ? svgWidth / boundRect.width : 1;
+    const scaleY: number = boundRect.height > 0 ? svgHeight / boundRect.height : 1;
+    const xValue: number = (event.clientX - boundRect.left) * scaleX;
+    const yValue: number = (event.clientY - boundRect.top) * scaleY;
+    const xRange: number[] = plotProperties.xScale.range();
+    const yRange: number[] = plotProperties.yScale.range();
+    const insidePlot: boolean = xValue >= Math.min(...xRange)
+      && xValue <= Math.max(...xRange)
+      && yValue >= Math.min(...yRange)
+      && yValue <= Math.max(...yRange);
+
+    // The SVG also contains the signal panel and axis labels. Do not keep
+    // showing the last datapoint tooltip when the pointer is outside the plot.
+    if (!insidePlot) {
+      visualObj.host.tooltipService.hide({ immediately: true, isTouchEvent: false });
+      xAxisLine.style("stroke-opacity", 0);
+      yAxisLine.style("stroke-opacity", 0);
+      return;
+    }
+
     let indexNearestValue: number | undefined;
     let nearestDistance: number = Infinity;
     let x_coord: number | undefined;
