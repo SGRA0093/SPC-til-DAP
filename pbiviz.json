@@ -1,25 +1,25 @@
 {
-  "visual":{
-    "name":"DAPSPC",
-    "displayName":"SPC til DAP",
-    "guid":"DAPSPC",
-    "visualClassName":"Visual",
-    "version":"1.0.0.2",
-    "description":"Statistisk proceskontrol: SPC-diagrammer med automatisk signaldetektion",
-    "supportUrl":"https://github.com/johanreventlow/SPC-til-DAP/issues",
-    "gitHubUrl":"https://github.com/johanreventlow/SPC-til-DAP"
+  "visual": {
+    "name": "DAPSPC",
+    "displayName": "SPC til DAP",
+    "guid": "DAPSPC",
+    "visualClassName": "Visual",
+    "version": "1.0.0.3",
+    "description": "Statistisk proceskontrol: SPC-diagrammer med automatisk signaldetektion",
+    "supportUrl": "https://github.com/johanreventlow/SPC-til-DAP/issues",
+    "gitHubUrl": "https://github.com/johanreventlow/SPC-til-DAP"
   },
-  "apiVersion":"5.1.0",
-  "author":{
-    "name":"Bispebjerg og Frederiksberg Hospital",
-    "email":"johan.reventlow@regionh.dk"
+  "apiVersion": "5.1.0",
+  "author": {
+    "name": "Bispebjerg og Frederiksberg Hospital",
+    "email": "johan.reventlow@regionh.dk"
   },
-  "assets":{
-    "icon":"assets/icon.png"
+  "assets": {
+    "icon": "assets/icon.png"
   },
-  "externalJS":null,
-  "style":null,
-  "capabilities":"capabilities.json",
-  "dependencies":null,
-  "stringResources":[]
+  "externalJS": null,
+  "style": null,
+  "capabilities": "capabilities.json",
+  "dependencies": null,
+  "stringResources": []
 }

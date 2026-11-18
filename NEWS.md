@@ -2,6 +2,8 @@
 
 ## Ikke udgivet
 
+## 1.0.0.3
+
 ### Akser
 
 * **Samme skrift på dato, måned og år.** Måned og år var begrænset til
