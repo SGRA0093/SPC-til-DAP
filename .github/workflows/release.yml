@@ -1,23 +1,32 @@
 name: "Release"
 
-# Production release, cut from a version tag. Unlike push_to_release.yml,
-# which builds a separately-guid'ed "(Dev)" visual for side-by-side testing,
-# this ships the real visual under its production name and guid.
+# Production release. Run this workflow manually from main and enter the
+# four-part Power BI version once. The workflow updates manifests and NEWS,
+# verifies, builds, commits, tags, and publishes the production visual.
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (e.g. 1.0.0.3; four numeric parts, without v)"
+        required: true
+        type: string
 
 permissions:
   contents: write
 
+concurrency:
+  group: production-release
+  cancel-in-progress: false
+
 jobs:
   release:
     name: "Build and publish"
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
     - uses: actions/checkout@v7
+      with:
+        fetch-depth: 0
 
     - name: Setup Node 24
       uses: actions/setup-node@v7
@@ -25,24 +34,149 @@ jobs:
         node-version: 24
         cache: 'npm'
 
-    - name: Verify tag matches the declared version
+    - name: Validate version, prepare files, or resume existing tag
+      id: prepare
+      env:
+        RELEASE_VERSION: ${{ inputs.version }}
       run: |
         set -euo pipefail
-        tag_version="${GITHUB_REF_NAME#v}"
-        pbiviz_version="$(node -p "require('./pbiviz.json').visual.version")"
-        package_version="$(node -p "require('./package.json').version")"
 
-        # A tag that disagrees with the manifest ships a visual whose version
-        # nobody can trace back to a commit. Fail before anything is published.
-        if [ "$tag_version" != "$pbiviz_version" ]; then
-          echo "::error::Tag ${GITHUB_REF_NAME} does not match pbiviz.json version ${pbiviz_version}"
+        if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+          echo "::error::Run the production Release workflow from the main branch."
           exit 1
         fi
-        if [ "$tag_version" != "$package_version" ]; then
-          echo "::error::pbiviz.json (${pbiviz_version}) and package.json (${package_version}) disagree"
+
+        if [[ ! "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          echo "::error::Version must have four numeric parts, e.g. 1.0.0.3 (without a leading v)."
           exit 1
         fi
-        echo "Releasing version ${tag_version}"
+
+        git fetch origin main --tags
+        if [[ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]]; then
+          echo "::error::main changed after this workflow was queued. Start Release again from the latest main."
+          exit 1
+        fi
+
+        tag="v${RELEASE_VERSION}"
+
+        # A tag means the version commit was already pushed by an earlier
+        # attempt. Rebuild that exact commit instead of trying to bump again.
+        if git show-ref --verify --quiet "refs/tags/${tag}"; then
+          tag_commit="$(git rev-parse "${tag}^{commit}")"
+          if ! git merge-base --is-ancestor "$tag_commit" origin/main; then
+            echo "::error::Tag ${tag} is not part of origin/main; refusing to publish it."
+            exit 1
+          fi
+
+          git checkout --detach "$tag"
+          RELEASE_VERSION="$RELEASE_VERSION" node <<'NODE'
+        const fs = require('node:fs');
+        const version = process.env.RELEASE_VERSION;
+        const pbiviz = JSON.parse(fs.readFileSync('pbiviz.json', 'utf8'));
+        const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+        const lock = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'));
+        if (pbiviz.visual.version !== version || packageJson.version !== version ||
+            lock.version !== version || lock.packages?.['']?.version !== version) {
+          throw new Error(`Tag does not contain consistent manifests for ${version}.`);
+        }
+        const lines = fs.readFileSync('NEWS.md', 'utf8').split(/\r?\n/);
+        const heading = `## ${version}`;
+        const start = lines.findIndex(line => line.trim() === heading);
+        const end = lines.findIndex((line, index) => index > start && /^## /.test(line));
+        const notes = lines.slice(start + 1, end < 0 ? lines.length : end).join('\n').trim();
+        if (start < 0 || !notes) {
+          throw new Error(`Tag does not contain non-empty NEWS.md notes for ${version}.`);
+        }
+        NODE
+          echo "tag_exists=true" >> "$GITHUB_OUTPUT"
+          echo "Resuming release ${tag} from its existing tag commit."
+          exit 0
+        fi
+
+        current_pbiviz="$(node -p "require('./pbiviz.json').visual.version")"
+        current_package="$(node -p "require('./package.json').version")"
+        current_lock="$(node -p "require('./package-lock.json').version")"
+        current_lock_root="$(node -p "require('./package-lock.json').packages[''].version")"
+        if [[ "$current_pbiviz" != "$current_package" || "$current_pbiviz" != "$current_lock" || "$current_pbiviz" != "$current_lock_root" ]]; then
+          echo "::error::pbiviz.json, package.json and package-lock.json versions do not match."
+          exit 1
+        fi
+
+        RELEASE_VERSION="$RELEASE_VERSION" CURRENT_VERSION="$current_pbiviz" node <<'NODE'
+        const fs = require('node:fs');
+        const version = process.env.RELEASE_VERSION;
+        const current = process.env.CURRENT_VERSION;
+        const compare = (left, right) => {
+          const a = left.split('.').map(BigInt);
+          const b = right.split('.').map(BigInt);
+          for (let i = 0; i < 4; i++) {
+            if (a[i] > b[i]) return 1;
+            if (a[i] < b[i]) return -1;
+          }
+          return 0;
+        };
+        const newsPath = 'NEWS.md';
+        const news = fs.readFileSync(newsPath, 'utf8');
+        const lines = news.split(/\r?\n/);
+        const versionHeading = `## ${version}`;
+        const versionSection = lines.findIndex(line => line.trim() === versionHeading);
+        const hasNotes = index => {
+          if (index < 0) return false;
+          const next = lines.findIndex((line, i) => i > index && /^## /.test(line));
+          return lines.slice(index + 1, next < 0 ? lines.length : next).join('\n').trim().length > 0;
+        };
+
+        if (compare(version, current) < 0) {
+          throw new Error(`Requested version ${version} is older than current version ${current}.`);
+        }
+
+        if (compare(version, current) === 0) {
+          // Recovery path: a prior run may have pushed the version commit but
+          // failed before pushing the tag. Do not bump or rewrite the files.
+          if (!hasNotes(versionSection)) {
+            throw new Error(`Version ${version} is already declared, but NEWS.md has no release notes section for it.`);
+          }
+          console.log(`Resuming ${version}: version files and NEWS.md are already prepared.`);
+          process.exit(0);
+        }
+
+        if (versionSection >= 0) {
+          throw new Error(`NEWS.md already contains ${versionHeading}, but manifests are still ${current}. Check the repository before retrying.`);
+        }
+
+        const unreleasedHeading = /^## Ikke udgivet[ \t]*\r?\n/m;
+        const match = unreleasedHeading.exec(news);
+        if (!match) throw new Error('NEWS.md must contain a "## Ikke udgivet" section.');
+        const bodyStart = match.index + match[0].length;
+        const remaining = news.slice(bodyStart);
+        const nextSection = remaining.search(/^## /m);
+        const rawBody = nextSection < 0 ? remaining : remaining.slice(0, nextSection);
+        const body = rawBody.replace(/^\r?\n+/, '').trimEnd();
+        if (!body.trim()) throw new Error('NEWS.md section "Ikke udgivet" is empty. Add release notes before running Release.');
+
+        const newline = news.includes('\r\n') ? '\r\n' : '\n';
+        const tail = nextSection < 0 ? '' : remaining.slice(nextSection).replace(/^\r?\n+/, '');
+        const prefix = news.slice(0, match.index);
+        const updatedNews = prefix
+          + `## Ikke udgivet${newline}${newline}## ${version}${newline}${newline}`
+          + body + newline + (tail ? newline + tail : '');
+
+        const writeJson = (path, value) => fs.writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
+        const pbiviz = JSON.parse(fs.readFileSync('pbiviz.json', 'utf8'));
+        const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+        const lock = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'));
+        pbiviz.visual.version = version;
+        packageJson.version = version;
+        lock.version = version;
+        lock.packages[''].version = version;
+        writeJson('pbiviz.json', pbiviz);
+        writeJson('package.json', packageJson);
+        writeJson('package-lock.json', lock);
+        fs.writeFileSync(newsPath, updatedNews);
+        console.log(`Prepared release ${version}; promoted Ikke udgivet notes to a versioned NEWS.md section.`);
+        NODE
+
+        echo "tag_exists=false" >> "$GITHUB_OUTPUT"
       shell: bash
 
     - name: Install Package Dependencies
@@ -53,41 +187,73 @@ jobs:
 
     - name: Run unit tests
       run: |
-        npx playwright install chromium
+        npx playwright install --with-deps chromium
         npm run test
 
     - name: Build package
       run: npx pbiviz package
 
     - name: Extract release notes
+      env:
+        RELEASE_VERSION: ${{ inputs.version }}
       run: |
         set -euo pipefail
-        version="${GITHUB_REF_NAME#v}"
-        # Pull the NEWS.md section whose heading starts with this version,
-        # stopping at the next "## " heading.
-        awk -v v="$version" '
-          $0 ~ "^## " v ( "([^0-9]|$)" ) { found = 1; next }
-          found && /^## / { exit }
-          found { print }
-        ' NEWS.md > release-notes.md
-        if [ ! -s release-notes.md ]; then
-          echo "No NEWS.md section for ${version}; falling back to generated notes"
-          rm -f release-notes.md
-        fi
+        RELEASE_VERSION="$RELEASE_VERSION" node <<'NODE'
+        const fs = require('node:fs');
+        const version = process.env.RELEASE_VERSION;
+        const lines = fs.readFileSync('NEWS.md', 'utf8').split(/\r?\n/);
+        const start = lines.findIndex(line => line.trim() === `## ${version}`);
+        if (start < 0) throw new Error(`NEWS.md has no section for ${version}.`);
+        const end = lines.findIndex((line, index) => index > start && /^## /.test(line));
+        const notes = lines.slice(start + 1, end < 0 ? lines.length : end).join('\n').trim();
+        if (!notes) throw new Error(`NEWS.md section for ${version} is empty.`);
+        fs.writeFileSync('release-notes.md', `${notes}\n`);
+        NODE
       shell: bash
 
-    - name: Publish release
+    - name: Commit version and tag, or skip when resuming
+      if: steps.prepare.outputs.tag_exists != 'true'
+      env:
+        RELEASE_VERSION: ${{ inputs.version }}
       run: |
         set -euo pipefail
-        if [ -f release-notes.md ]; then
-          gh release create "${GITHUB_REF_NAME}" dist/*.pbiviz \
-            --title "${GITHUB_REF_NAME}" \
-            --notes-file release-notes.md
-        else
-          gh release create "${GITHUB_REF_NAME}" dist/*.pbiviz \
-            --title "${GITHUB_REF_NAME}" \
-            --generate-notes
+        tag="v${RELEASE_VERSION}"
+        git fetch origin main --tags
+        if [[ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]]; then
+          echo "::error::main changed while the release was being built. No commit or tag was pushed; run Release again."
+          exit 1
         fi
+        if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1; then
+          echo "::error::Tag ${tag} appeared during this run. Start Release again to resume it safely."
+          exit 1
+        fi
+
+        git config user.name "github-actions[bot]"
+        git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git add pbiviz.json package.json package-lock.json NEWS.md
+        git diff --cached --check
+        if ! git diff --cached --quiet; then
+          git commit -m "chore: release ${tag}"
+        fi
+        git tag -a "$tag" -m "Release ${tag}"
+        git push --atomic origin HEAD:refs/heads/main "refs/tags/${tag}"
+      shell: bash
+
+    - name: Publish or repair GitHub release
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        RELEASE_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        tag="v${RELEASE_VERSION}"
+        if gh release view "$tag" >/dev/null 2>&1; then
+          echo "Release ${tag} already exists; refreshing its asset and notes."
+          gh release upload "$tag" dist/*.pbiviz --clobber
+          gh release edit "$tag" --title "$tag" --notes-file release-notes.md
+        else
+          gh release create "$tag" dist/*.pbiviz \
+            --title "$tag" \
+            --notes-file release-notes.md \
+            --verify-tag
+        fi
       shell: bash
