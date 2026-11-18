@@ -1,5 +1,33 @@
 # NEWS
 
+## Ikke udgivet
+
+### Akser
+
+* **Samme skrift på dato, måned og år.** Måned og år var begrænset til
+  højst 9 pt, mens datoerne fulgte Skriftstørrelse. Alle tre rækker bruger
+  nu skrifttype og størrelse fra Aksemærker, og rækkernes højde følger
+  skriften.
+* **Månedsskel helt op til grafen.** De lodrette skel mellem månederne
+  starter nu ved aksen og går ned gennem datoerne, som i Power BI's
+  linjediagram, i stedet for først at begynde under datoerne.
+* **Datoer står altid lodret.** På en datoakse er standarden nu lodrette
+  datoer (-90 grader), uanset hvor meget plads der er. Før prøvede aksen
+  vandret først. En eksplicit rotation under Aksemærker (fx -45) gælder
+  stadig; kun standarden 0 betyder "lodret" for datoer.
+* **Første og sidste dato holdes inden for grafen.** En datoetiket står ved
+  sit mærke, så ved første og sidste punkt stak en del af den ud over
+  grafen, også når datoen står lodret. Efter tegningen måles, hvor meget
+  etiketterne stikker ud, og datapunkterne rykkes præcis så langt ind fra
+  kanterne. Aksen og månedsinddelingen går stadig helt ud til kanten. Det
+  gælder kun datoakser.
+* **Y-aksen går ikke under nul uden negative værdier.** Skaleringsfaktoren
+  trak nedre grænse ud fra centerlinjen, så et lavt punkt og en høj median
+  kunne give en akse ned til omkring -600, selvom alle værdier var positive.
+  Aksen stopper nu ved 0, når hverken værdier, nedre kontrolgrænse eller
+  mållinje er negative. En negativ kontrolgrænse holder aksen åben, så
+  grænselinjen ikke skæres væk, og en eksplicit Nedre grænse gælder som før.
+
 ## 1.0.0.2 — Vurdering: Reagér, Studér, Observér.
 
 

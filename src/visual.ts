@@ -106,6 +106,7 @@ export class Visual implements powerbi.extensibility.IVisual {
         this.resizeCanvas(options.viewport.width, options.viewport.height);
         this.drawVisual();
         this.adjustPaddingForPanel();
+        this.adjustPaddingForDateLabels();
         this.adjustPaddingForOverflow();
       }
 
@@ -172,6 +173,66 @@ export class Visual implements powerbi.extensibility.IVisual {
       this.plotProperties.initialiseScale(this.viewModel.svgWidth, this.viewModel.svgHeight);
       this.drawVisual();
     }
+  }
+
+  /**
+   * Holder første og sidste datoetiket inden for grafen.
+   *
+   * En etiket står ved sit mærke, så ved første og sidste punkt stikker en
+   * del af den ud over aksens kant: til venstre for y-aksen og til højre for
+   * grafen. Det gælder også lodrette datoer, som ikke står midt under
+   * mærket. Her måles, hvor meget etiketterne stikker ud, og datapunkterne
+   * rykkes præcis så langt ind fra kanterne; aksen og månedsinddelingen går
+   * stadig helt ud til kanten.
+   *
+   * Kun datoakser, hvor etiketterne har et måned/år-hierarki.
+   */
+  adjustPaddingForDateLabels(): void {
+    // Uden layout (headless eksport) er der intet at måle.
+    if (this.viewModel.headless || this.svg.select(".xaxisgroup .date-hierarchy").empty()) {
+      return;
+    }
+    const labels: SVGTextElement[] = this.svg
+      .selectAll<SVGTextElement, unknown>(".xaxisgroup .tick text")
+      .nodes()
+      .filter(label => (label.textContent ?? "") !== "" && label.style.display !== "none");
+    if (labels.length === 0) {
+      return;
+    }
+
+    const svgWidth: number = this.viewModel.svgWidth;
+    const svgRect: DOMRect = (this.svg.node() as SVGSVGElement).getBoundingClientRect();
+    // Hvis visualen er skaleret, er skærmpixels ikke det samme som svg-pixels.
+    const scale: number = svgRect.width > 0 && svgWidth > 0 ? svgRect.width / svgWidth : 1;
+    const plotLeft: number = svgRect.left + this.plotProperties.xAxis.start_padding * scale;
+    const plotRight: number = svgRect.left + (svgWidth - this.plotProperties.xAxis.end_padding) * scale;
+
+    let labelLeft: number = Infinity;
+    let labelRight: number = -Infinity;
+    for (const label of labels) {
+      const rect: DOMRect = label.getBoundingClientRect();
+      if (rect.width === 0) {
+        continue;
+      }
+      labelLeft = Math.min(labelLeft, rect.left);
+      labelRight = Math.max(labelRight, rect.right);
+    }
+    if (!Number.isFinite(labelLeft) || !Number.isFinite(labelRight)) {
+      return;
+    }
+
+    const overshootLeft: number = Math.max(0, (plotLeft - labelLeft) / scale);
+    const overshootRight: number = Math.max(0, (labelRight - plotRight) / scale);
+    if (overshootLeft < 0.5 && overshootRight < 0.5) {
+      return;
+    }
+
+    // En pixel ekstra, så etiketten ikke rører kanten.
+    const breathing: number = 1;
+    this.plotProperties.xInset.left += overshootLeft > 0 ? overshootLeft + breathing : 0;
+    this.plotProperties.xInset.right += overshootRight > 0 ? overshootRight + breathing : 0;
+    this.plotProperties.initialiseScale(svgWidth, this.viewModel.svgHeight);
+    this.drawVisual();
   }
 
   adjustPaddingForOverflow(): void {

@@ -144,20 +144,110 @@ describe("Datoakse med måned- og årsniveau", () => {
     element.remove();
   });
 
-  it("viser datoer vandret, når der er plads nok", () => {
+  it("viser altid datoer lodret, også når der er plads til at lægge dem vandret", () => {
     const dates: Date[] = Array.from({ length: 8 }, (_, index) =>
       new Date(2026, 8, index + 1));
     const { element } = render(dates, 1200);
 
-    const dateLabels = Array.from(element.querySelectorAll<SVGTextElement>(
+    const shownDateLabels = Array.from(element.querySelectorAll<SVGTextElement>(
       ".xaxisgroup .tick text"
-    ));
-    const shownDateLabels = dateLabels.filter(label =>
-      label.textContent !== "" && label.style.display !== "none");
+    )).filter(label => label.textContent !== "" && label.style.display !== "none");
 
     expect(shownDateLabels.length).toBe(8);
-    expect(shownDateLabels[0].getAttribute("transform")).toBe("rotate(0)");
-    expect(shownDateLabels.every(label => label.getAttribute("transform") === "rotate(0)")).toBe(true);
+    expect(shownDateLabels.every(label => label.getAttribute("transform") === "rotate(-90)")).toBe(true);
+    element.remove();
+  });
+
+  it("respekterer en eksplicit rotation fra brugeren på datoaksen", () => {
+    const dates: Date[] = Array.from({ length: 8 }, (_, index) =>
+      new Date(2026, 8, index + 1));
+    const { element } = render(dates, 1200, settings => {
+      settings.x_axis.xlimit_tick_rotation = -45;
+    });
+
+    const dateLabels = Array.from(element.querySelectorAll<SVGTextElement>(
+      ".xaxisgroup .tick text"
+    )).filter(label => label.textContent !== "");
+    expect(dateLabels.every(label => label.getAttribute("transform") === "rotate(-45)")).toBe(true);
+    element.remove();
+  });
+
+  it("bruger samme skrifttype og størrelse til dato, måned og år", () => {
+    const dates: Date[] = Array.from({ length: 40 }, (_, index) =>
+      new Date(2026, 8, index + 1));
+    const { element } = render(dates, 1100, settings => {
+      settings.x_axis.xlimit_tick_size = 12;
+      settings.x_axis.xlimit_tick_count = 40;
+    });
+
+    const dateLabel = element.querySelector<SVGTextElement>(".xaxisgroup .tick text")!;
+    const monthLabel = element.querySelector<SVGTextElement>(".xaxisgroup .month-label")!;
+    const yearLabel = element.querySelector<SVGTextElement>(".xaxisgroup .year-label")!;
+
+    expect(dateLabel.style.fontSize).toBe("12pt");
+    expect(monthLabel.style.fontSize).toBe(dateLabel.style.fontSize);
+    expect(yearLabel.style.fontSize).toBe(dateLabel.style.fontSize);
+    expect(monthLabel.style.fontFamily).toBe(dateLabel.style.fontFamily);
+    expect(yearLabel.style.fontFamily).toBe(dateLabel.style.fontFamily);
+    element.remove();
+  });
+
+  it("lader skellene mellem månederne starte ved aksen", () => {
+    const dates: Date[] = Array.from({ length: 40 }, (_, index) =>
+      new Date(2026, 8, index + 1));
+    const { element } = render(dates, 1100);
+
+    const dividers = Array.from(element.querySelectorAll<SVGLineElement>(
+      ".xaxisgroup .date-hierarchy .month-divider"
+    ));
+    const monthBoundary = element.querySelector<SVGLineElement>(
+      ".xaxisgroup .date-hierarchy .month-boundary"
+    )!;
+
+    expect(dividers.length).toBeGreaterThan(0);
+    for (const divider of dividers) {
+      // 0 er aksens baseline i gruppens egne koordinater.
+      expect(Number(divider.getAttribute("y1"))).toBe(0);
+      expect(Number(divider.getAttribute("y2"))).toBeGreaterThan(
+        Number(monthBoundary.getAttribute("y1"))
+      );
+    }
+    element.remove();
+  });
+
+  it("holder første og sidste datoetiket inden for grafen", () => {
+    const dates: Date[] = Array.from({ length: 40 }, (_, index) =>
+      new Date(2026, 8, index + 1));
+    const { element } = render(dates, 1100, settings => {
+      settings.x_axis.xlimit_tick_count = 40;
+    });
+
+    const axisLine = element.querySelector<SVGPathElement>(".xaxisgroup path.domain")!.getBoundingClientRect();
+    const shown = Array.from(element.querySelectorAll<SVGTextElement>(".xaxisgroup .tick text"))
+      .filter(label => label.textContent !== "" && label.style.display !== "none")
+      .map(label => label.getBoundingClientRect());
+
+    expect(shown.length).toBeGreaterThan(1);
+    // 1 px tolerance: aksens stregs egen bredde.
+    const left = Math.min(...shown.map(rect => rect.left));
+    const right = Math.max(...shown.map(rect => rect.right));
+    expect(left).toBeGreaterThanOrEqual(axisLine.left - 1);
+    expect(right).toBeLessThanOrEqual(axisLine.right + 1);
+    element.remove();
+  });
+
+  it("lader månedsinddelingen gå helt ud til aksens kanter", () => {
+    const dates: Date[] = Array.from({ length: 40 }, (_, index) =>
+      new Date(2026, 8, index + 1));
+    const { element } = render(dates, 1100);
+
+    const axisLine = element.querySelector<SVGPathElement>(".xaxisgroup path.domain")!.getBoundingClientRect();
+    const boundaries = Array.from(element.querySelectorAll<SVGLineElement>(
+      ".xaxisgroup .date-hierarchy .month-boundary"
+    )).map(line => line.getBoundingClientRect());
+
+    expect(Math.min(...boundaries.map(rect => rect.left))).toBeLessThanOrEqual(axisLine.left + 1);
+    expect(Math.max(...boundaries.map(rect => rect.right))).toBeGreaterThanOrEqual(axisLine.right - 1);
     element.remove();
   });
 });

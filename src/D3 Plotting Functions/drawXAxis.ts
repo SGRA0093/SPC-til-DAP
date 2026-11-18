@@ -1,32 +1,10 @@
 import * as d3 from "./D3 Modules";
 import type { axisProperties } from "../Classes/plotPropertiesClass";
 import type { svgBaseType, Visual } from "../visual";
+import ptToPx from "../Functions/ptToPx";
 
 // Mindste luft mellem to uroterede aksemærke-etiketter, i px.
 const TICK_LABEL_GAP: number = 4;
-
-/**
- * Undersøger om alle datoetiketter kan stå vandret uden at overlappe.
- * En manglende måling behandles konservativt: så roteres etiketterne.
- */
-function dateTickLabelsFitHorizontally(labels: SVGGraphicsElement[]): boolean {
-  if (labels.length === 0) {
-    return false;
-  }
-
-  let previousRight: number | undefined;
-  for (const label of labels) {
-    const rect: DOMRect = label.getBoundingClientRect();
-    if (rect.width === 0) {
-      return false;
-    }
-    if (previousRight !== undefined && rect.left < previousRight + TICK_LABEL_GAP) {
-      return false;
-    }
-    previousRight = rect.right;
-  }
-  return true;
-}
 
 /** Skjuler etiketter, der fysisk overlapper efter rotationen er anvendt. */
 function hideOverlappingTickLabels(labels: SVGGraphicsElement[]): void {
@@ -135,31 +113,38 @@ function addDateHierarchy(
     }
   });
 
+  // Datoer, måned og år står i samme skrifttype og størrelse, som aksemærkerne
+  // er sat til. Rækkernes højde følger skriften, så en større skrift ikke
+  // skubber teksten op i skillelinjerne.
   const dateFontPt: number = Number.parseFloat(xAxisProperties.tick_size) || 9;
+  const fontPx: number = ptToPx(dateFontPt);
+  const rowHeight: number = Math.max(22, Math.round(fontPx * 1.6));
+  const rowTextOffset: number = rowHeight / 2 + fontPx * 0.35;
   // Vandrette etiketter bruger kun én linje; lodrette etiketter kræver
   // plads til hele datoens længde. Måned og år får hver sin række nedenunder.
   const dateLabelDepth: number = tickRotation === 0
-    ? Math.max(20, dateFontPt * (4 / 3) * 1.8)
-    : Math.max(42, dateFontPt * (4 / 3) * 5.2);
+    ? Math.max(20, fontPx * 1.8)
+    : Math.max(42, fontPx * 5.2);
   // .xaxisgroup er allerede flyttet ned til aksens baseline. Koordinaterne
   // her skal derfor være lokale for gruppen og ikke indeholde xAxisHeight.
   const monthLineY: number = dateLabelDepth + 5;
-  const monthTextY: number = monthLineY + 14;
-  const yearLineY: number = monthLineY + 22;
-  const yearTextY: number = yearLineY + 14;
+  const monthTextY: number = monthLineY + rowTextOffset;
+  const yearLineY: number = monthLineY + rowHeight;
+  const yearTextY: number = yearLineY + rowTextOffset;
   // D3 AxisScale er typet som muligvis undefined, men den konkrete lineære
   // x-skala returnerer altid en koordinat for gyldige domæneværdier.
   const axisScale = (value: number): number =>
     visualObj.plotProperties.xScale(value) as number;
-  const lower: number = visualObj.plotProperties.xAxis.lower;
-  const upper: number = visualObj.plotProperties.xAxis.upper;
+  // Første og sidste gruppe går helt ud til aksens kanter, også når
+  // datapunkterne ligger et stykke inde fra dem (se xInset).
+  const [axisLeft, axisRight]: number[] = visualObj.plotProperties.xScale.range();
 
   const boundary = (previousLast: number | undefined, nextFirst: number | undefined): number => {
     if (previousLast === undefined) {
-      return axisScale(lower);
+      return axisLeft;
     }
     if (nextFirst === undefined) {
-      return axisScale(upper);
+      return axisRight;
     }
     return axisScale((previousLast + nextFirst) / 2);
   };
@@ -199,7 +184,9 @@ function addDateHierarchy(
     .classed("month-divider", true)
     .attr("x1", d => d.left)
     .attr("x2", d => d.left)
-    .attr("y1", monthLineY)
+    // Skellene mellem månederne starter ved aksen (y = 0) og går ned gennem
+    // datoerne, som i Power BI's linjediagram, i stedet for først under dem.
+    .attr("y1", 0)
     .attr("y2", yearLineY + 1)
     .attr("stroke", separatorColour)
     .attr("stroke-width", lineWidth);
@@ -211,10 +198,10 @@ function addDateHierarchy(
     .attr("x", d => (d.left + d.right) / 2)
     .attr("y", monthTextY)
     .attr("text-anchor", "middle")
-    .style("font-size", `${Math.min(dateFontPt, 9)}pt`)
+    .style("font-size", `${dateFontPt}pt`)
     .style("font-family", xAxisProperties.tick_font)
     .style("fill", labelColour)
-    .text(d => d.right - d.left >= d.group.label.length * dateFontPt * 0.55
+    .text(d => d.right - d.left >= d.group.label.length * fontPx * 0.55
       ? d.group.label
       : "");
 
@@ -236,7 +223,7 @@ function addDateHierarchy(
     .attr("x", d => (d.left + d.right) / 2)
     .attr("y", yearTextY)
     .attr("text-anchor", "middle")
-    .style("font-size", `${Math.min(dateFontPt, 9)}pt`)
+    .style("font-size", `${dateFontPt}pt`)
     .style("font-family", xAxisProperties.tick_font)
     .style("fill", labelColour)
     .text(d => d.group.label);
@@ -276,12 +263,12 @@ export default function drawXAxis(selection: svgBaseType, visualObj: Visual) {
     xAxisProperties.tick_count
   );
   const locale: string = getDateLocale(visualObj);
-  // Ved datoakse og standardrotation prøves vandret først. En eksplicit
-  // rotationsindstilling fra brugeren respekteres stadig.
-  let tickRotation: number = useDateHierarchy && xAxisProperties.tick_rotation === 0
-    ? 0
+  // Datoer står altid lodret, som i Power BI's linjediagram. Rotationen
+  // 0 er standarden og betyder her "lodret"; en eksplicit anden rotation fra
+  // brugeren respekteres stadig.
+  const tickRotation: number = useDateHierarchy && xAxisProperties.tick_rotation === 0
+    ? -90
     : xAxisProperties.tick_rotation;
-  const autoRotateDateTicks: boolean = useDateHierarchy && xAxisProperties.tick_rotation === 0;
   const xAxis: d3.Axis<number> = d3.axisBottom(visualObj.plotProperties.xScale);
 
   // D3's axis call updates its own ticks, but does not remove custom children
@@ -342,18 +329,13 @@ export default function drawXAxis(selection: svgBaseType, visualObj: Visual) {
       .style("fill", displayPlot ? xAxisProperties.tick_colour : "#FFFFFF");
   };
 
-  // First pass is horizontal for date axes so the browser can measure the
-  // actual rendered text widths. If even one pair overlaps, rotate the dates.
   applyTickTextLayout(tickRotation);
-  if (autoRotateDateTicks && !dateTickLabelsFitHorizontally(tickText.nodes())) {
-    tickRotation = -90;
-    applyTickTextLayout(tickRotation);
-  }
 
   // Når etiketterne er roteret, giver rotationen i sig selv plads mellem
-  // datoerne. Skjul derfor kun overlappende etiketter i vandret visning.
-  // Det sikrer også, at en ny optegning med rotation kan genskabe etiketter,
-  // som blev skjult i den foregående vandrette optegning.
+  // datoerne, og antallet styres af "Maks. antal mærker". Skjul derfor kun
+  // overlappende etiketter i vandret visning. Det sikrer også, at en ny
+  // optegning med rotation kan genskabe etiketter, som blev skjult i den
+  // foregående vandrette optegning: applyTickTextLayout nulstiller dem.
   if (tickRotation === 0) {
     hideOverlappingTickLabels(tickText.nodes());
   }

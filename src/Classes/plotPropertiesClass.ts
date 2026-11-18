@@ -13,6 +13,7 @@ import type derivedSettingsClass from "./derivedSettingsClass";
 import type { colourPaletteType } from "./viewModelClass";
 import scaleLinear from "../Functions/scaleLinear";
 import ptToPx from "../Functions/ptToPx";
+import insetDomain from "../Functions/insetDomain";
 
 export type axisProperties = {
   lower: number,
@@ -51,11 +52,24 @@ export default class plotPropertiesClass {
   // højre". Panelet er forankret til end_padding, så en udvidet margen alene
   // ville flytte panelet med; denne luft holder det på plads.
   panelLabelGap: number = 0;
+  // Luft i pixels mellem aksens kanter og første/sidste datapunkt. Måles frem
+  // af adjustPaddingForDateLabels, når en datoetiket ved første eller sidste
+  // punkt ellers ville stikke ud over grafen. Nulstilles ved hver opdatering.
+  xInset: { left: number, right: number } = { left: 0, right: 0 };
 
   // Separate function so that the axis can be re-calculated on changes to padding
   initialiseScale(svgWidth: number, svgHeight: number): void {
+    // Aksen fylder hele området mellem marginerne; datapunkterne kan ligge et
+    // stykke inde fra kanterne (se xInset). xAxis.lower og .upper er fortsat
+    // datagrænserne, som drawLines og drawDots filtrerer på.
+    const rangeWidth: number = svgWidth - this.xAxis.end_padding - this.xAxis.start_padding;
+    const xDomain: [number, number] = insetDomain(this.xAxis.lower,
+                                                  this.xAxis.upper,
+                                                  rangeWidth,
+                                                  this.xInset.left,
+                                                  this.xInset.right);
     this.xScale = scaleLinear()
-                    .domain([this.xAxis.lower, this.xAxis.upper])
+                    .domain(xDomain)
                     .range([this.xAxis.start_padding,
                             svgWidth - this.xAxis.end_padding]) as unknown as d3.AxisScale<number>;
 
@@ -103,6 +117,7 @@ export default class plotPropertiesClass {
     const colorPalette: colourPaletteType = viewModel.colourPalette;
 
     this.displayPlot = plotPoints.length > 0;
+    this.xInset = { left: 0, right: 0 };
 
     let xLowerLimit: number | undefined = inputSettings.x_axis.xlimit_l;
     let xUpperLimit: number | undefined = inputSettings.x_axis.xlimit_u;
@@ -155,7 +170,17 @@ export default class plotPropertiesClass {
                       ? Math.min(upperLimitRaw, 1 * multiplier)
                       : upperLimitRaw;
 
-      yLowerLimit ??= derivedSettings.percentLabels
+      // Skaleringsfaktoren trækker nedre grænse ud fra centerlinjen. Med et
+      // lavt datapunkt og en høj centerlinje havner grænsen under nul (fx
+      // -680 for værdier mellem 7 og 1760 omkring en median på 1381), og
+      // aksen viser et negativt område, som data aldrig kommer i.
+      //
+      // Er hverken værdier, nedre kontrolgrænse eller mållinje negative,
+      // stopper aksen derfor ved 0. En negativ kontrolgrænse holder stadig
+      // aksen åben, så grænselinjen ikke bliver skåret væk (se ovenfor).
+      // En eksplicit nedre grænse fra brugeren gælder som altid.
+      const noNegativeValues: boolean = minValueOrLimit >= 0;
+      yLowerLimit ??= (derivedSettings.percentLabels || noNegativeValues)
                       ? Math.max(lowerLimitRaw, 0)
                       : lowerLimitRaw;
 
