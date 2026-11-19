@@ -172,7 +172,14 @@ export default class viewModelClass {
   outliers: outliersObject[];
   plotPoints: (plotData[] | plotDataGrouped[])[];
   groupedLines: [string, lineData[]][];
-  tickLabels: { x: number; label: string; date?: Date; }[];
+  tickLabels: {
+    x: number;
+    label: string;
+    date?: Date;
+    dateGranularity?: "date" | "month" | "week";
+    periodLabel?: string;
+    year?: number;
+  }[];
   splitIndexes: number[];
   groupStartEndIndexes: number[][][];
   firstRun: boolean;
@@ -628,7 +635,14 @@ export default class viewModelClass {
     const derivedSettings = this.inputSettings.derivedSettings[0];
 
     this.plotPoints[0] = new Array<plotData>();
-    this.tickLabels = new Array<{ x: number; label: string; date?: Date; }>();
+    this.tickLabels = new Array<{
+      x: number;
+      label: string;
+      date?: Date;
+      dateGranularity?: "date" | "month" | "week";
+      periodLabel?: string;
+      year?: number;
+    }>();
     this.tableColumns[0] = new Array<{ name: string; label: string; }>();
 
     this.tableColumns[0].push({ name: "date", label: "Dato" });
@@ -723,7 +737,14 @@ export default class viewModelClass {
       this.tickLabels.push({
         x: index,
         label: controlLimits.keys[i].label,
-        date: derivedSettings.chart_type_props.x_axis_use_date ? inputData.dates?.[i] : undefined
+        // Keep parsed dates for an explicit Power BI date hierarchy even on
+        // G/T charts, whose x-scale itself remains categorical.
+        date: derivedSettings.chart_type_props.x_axis_use_date || inputData.dateGranularity !== undefined
+          ? inputData.dates?.[i]
+          : undefined,
+        dateGranularity: inputData.dateGranularity,
+        periodLabel: inputData.datePeriodLabels?.[i],
+        year: inputData.datePeriodYears?.[i]
       });
     }
   }

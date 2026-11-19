@@ -29,6 +29,121 @@ function render(keys: any[], width: number, overrides: (s: any) => void = () => 
   return { element, settings, update };
 }
 
+function renderDateHierarchy(
+  years: number[],
+  periods: (string | number)[],
+  periodLevel: "Month" | "Week",
+  periodCategory: "Months" | "Weeks",
+  width: number,
+  overrides: (s: any) => void = () => undefined,
+  chartType: "i" | "g" | "t" = "i",
+  localizedMetadata: boolean = false,
+  opaqueQueryNames: boolean = false
+) {
+  const element = testDom(String(width), "400");
+  const visual = new Visual({ element: element, host: createVisualHost({}) });
+  const settings = JSON.parse(JSON.stringify(defaultSettings));
+  settings.spc.chart_type = chartType;
+  overrides(settings);
+
+  const baseView = buildDataView({
+    key: years.map((year, index) => `${year}-${periods[index]}`),
+    numerators: years.map((_, index) => numerators[index % numerators.length])
+  }, settings);
+  const originalCategory = baseView.categorical!.categories![0];
+  const yearColumn = {
+    ...originalCategory,
+    source: {
+      ...originalCategory.source,
+      displayName: localizedMetadata ? "År" : "Year",
+      queryName: opaqueQueryNames ? "CalendarYear" : localizedMetadata ? "Kalender.Date Hierarki.År" : "Calendar.Date Hierarchy.Year",
+      type: { numeric: true, temporal: localizedMetadata, category: localizedMetadata ? "År" : "Years" },
+      roles: { key: true }
+    },
+    values: years
+  };
+  const periodColumn = {
+    ...originalCategory,
+    source: {
+      ...originalCategory.source,
+      displayName: localizedMetadata ? (periodLevel === "Month" ? "Måned" : "Uge") : periodLevel,
+      queryName: opaqueQueryNames
+        ? `Calendar${periodLevel}`
+        : localizedMetadata
+          ? `Kalender.Date Hierarki.${periodLevel === "Month" ? "Måned" : "Uge"}`
+          : `Calendar.Date Hierarchy.${periodLevel}`,
+      type: { text: true, numeric: true, temporal: localizedMetadata, category: localizedMetadata
+        ? (periodLevel === "Month" ? "Måned" : "Uge")
+        : periodCategory },
+      roles: { key: true }
+    },
+    values: periods
+  };
+  baseView.categorical!.categories = [yearColumn, periodColumn] as any;
+
+  const update = () => visual.update({
+    dataViews: [baseView],
+    viewport: { width: width, height: 400 },
+    type: 2 /*powerbi.VisualUpdateType.Data*/
+  });
+  update();
+  return { element, settings, update };
+}
+
+function renderFullDateHierarchy(
+  years: number[],
+  months: number[],
+  days: number[],
+  width: number,
+  chartType: "i" | "t" = "i",
+  opaqueQueryNames: boolean = false,
+  dayIsTemporal: boolean = true
+) {
+  const element = testDom(String(width), "400");
+  const visual = new Visual({ element: element, host: createVisualHost({}) });
+  const settings = JSON.parse(JSON.stringify(defaultSettings));
+  settings.spc.chart_type = chartType;
+
+  const keys = years.map((year, index) =>
+    `${year}-${String(months[index]).padStart(2, "0")}-${String(days[index]).padStart(2, "0")}`
+  );
+  const baseView = buildDataView({
+    key: keys,
+    numerators: years.map((_, index) => numerators[index % numerators.length])
+  }, settings);
+  const originalCategory = baseView.categorical!.categories![0];
+  const makeLevel = (
+    displayName: string,
+    queryName: string,
+    category: string,
+    values: number[],
+    temporal: boolean = true
+  ) => ({
+    ...originalCategory,
+    source: {
+      ...originalCategory.source,
+      displayName,
+      queryName: opaqueQueryNames ? `Calendar${queryName}` : `Calendar.Date Hierarchy.${queryName}`,
+      type: { numeric: true, temporal, category },
+      roles: { key: true }
+    },
+    values
+  });
+  baseView.categorical!.categories = [
+    makeLevel("Year", "Year", "Years", years),
+    makeLevel("Month", "Month", "Months", months),
+    makeLevel("Day", "Day", "Days", days, dayIsTemporal)
+  ] as any;
+
+  const update = () => visual.update({
+    dataViews: [baseView],
+    viewport: { width, height: 400 },
+    type: 2 /*powerbi.VisualUpdateType.Data*/
+  });
+  update();
+  return { element, settings, update };
+}
+
 function labels(element: HTMLElement) {
   const all = Array.from(element.querySelectorAll<SVGGraphicsElement>(".xaxisgroup .tick text"));
   const withText = all.filter(l => (l.textContent ?? "") !== "");
@@ -91,6 +206,246 @@ describe("Uroterede aksemærke-etiketter", () => {
 
 
 describe("Datoakse med måned- og årsniveau", () => {
+  it("viser alle måneder lodret og kun ét årstal pr. år uden datoniveau", () => {
+    const months = ["January", "February", "March", "April", "May", "June",
+      "July", "August", "September", "October", "November", "December"];
+    const years = [...months.map(() => 2025), ...months.map(() => 2026)];
+    const { element } = renderDateHierarchy(
+      years, [...months, ...months], "Month", "Months", 1100,
+      settings => { settings.x_axis.xlimit_tick_count = 3; }
+    );
+
+    const periodLabels = Array.from(element.querySelectorAll<SVGTextElement>(
+      ".xaxisgroup .tick text"
+    )).filter(label => label.textContent !== "");
+    const yearLabels = Array.from(element.querySelectorAll<SVGTextElement>(
+      ".xaxisgroup .date-hierarchy .year-label"
+    ));
+    const lowerMonthLabels = element.querySelectorAll(
+      ".xaxisgroup .date-hierarchy .month-label"
+    );
+
+    expect(periodLabels).toHaveLength(24);
+    expect(periodLabels[0].textContent).toBe("january");
+    expect(periodLabels[0].getAttribute("transform")).toBe("rotate(-90)");
+    expect(lowerMonthLabels).toHaveLength(0);
+    expect(yearLabels.map(label => label.textContent)).toEqual(["2025", "2026"]);
+    element.remove();
+  });
+
+  it("viser ugeetiketter vandret, uden overlap, og samler ugerne tæt under årstallet", () => {
+    const { element } = renderDateHierarchy(
+      [2025, 2025, 2025, 2026, 2026, 2026],
+      [1, 2, 3, 1, 2, 3],
+      "Week", "Weeks", 600
+    );
+
+    const periodLabels = Array.from(element.querySelectorAll<SVGTextElement>(
+      ".xaxisgroup .tick text"
+    )).filter(label => label.textContent !== "");
+    const yearLabels = Array.from(element.querySelectorAll<SVGTextElement>(
+      ".xaxisgroup .date-hierarchy .year-label"
+    ));
+
+    expect(periodLabels.map(label => label.textContent)).toEqual(["1", "2", "3", "1", "2", "3"]);
+    expect(periodLabels.every(label => label.getAttribute("transform") === "rotate(0)")).toBe(true);
+    expect(periodLabels.every(label => label.getAttribute("dy") === ".9em")).toBe(true);
+    expect(overlaps(periodLabels)).toBe(false);
+    expect(yearLabels.map(label => label.textContent)).toEqual(["2025", "2026"]);
+    const yearBoundary = element.querySelector<SVGLineElement>(
+      ".xaxisgroup .date-hierarchy .year-boundary"
+    )!;
+    const yearBoundaryY: number = Number(yearBoundary.getAttribute("y1"));
+    // Ugenumrene skal have luft både fra akselinjen og fra årsrækken.
+    expect(yearBoundaryY).toBeGreaterThan(24);
+    expect(yearBoundaryY).toBeLessThan(30);
+    element.remove();
+  });
+
+  it("begrænser ugeetiketter med Maks. antal mærker", () => {
+    const years = [...Array.from({ length: 52 }, () => 2025), ...Array.from({ length: 52 }, () => 2026)];
+    const weeks = [...Array.from({ length: 52 }, (_, index) => index + 1),
+      ...Array.from({ length: 52 }, (_, index) => index + 1)];
+    const { element } = renderDateHierarchy(
+      years, weeks, "Week", "Weeks", 900,
+      settings => { settings.x_axis.xlimit_tick_count = 6; }
+    );
+
+    const shownWeekLabels = Array.from(element.querySelectorAll<SVGTextElement>(
+      ".xaxisgroup .tick text"
+    )).filter(label => label.textContent !== "" && label.style.display !== "none");
+    const yearLabels = Array.from(element.querySelectorAll<SVGTextElement>(
+      ".xaxisgroup .date-hierarchy .year-label"
+    ));
+
+    expect(shownWeekLabels).toHaveLength(6);
+    expect(yearLabels.map(label => label.textContent)).toEqual(["2025", "2026"]);
+    expect(overlaps(shownWeekLabels)).toBe(false);
+    element.remove();
+  });
+
+  it("skjuler tætte ugeetiketter i stedet for at lade dem overlappe", () => {
+    const years = [...Array.from({ length: 52 }, () => 2025), ...Array.from({ length: 52 }, () => 2026)];
+    const weeks = [...Array.from({ length: 52 }, (_, index) => index + 1),
+      ...Array.from({ length: 52 }, (_, index) => index + 1)];
+    const { element } = renderDateHierarchy(
+      years, weeks, "Week", "Weeks", 600,
+      settings => { settings.x_axis.xlimit_tick_count = 100; }
+    );
+
+    const shownWeekLabels = Array.from(element.querySelectorAll<SVGTextElement>(
+      ".xaxisgroup .tick text"
+    )).filter(label => label.textContent !== "" && label.style.display !== "none");
+
+    expect(shownWeekLabels.length).toBeGreaterThan(1);
+    expect(shownWeekLabels.length).toBeLessThan(100);
+    expect(shownWeekLabels.every(label => label.getAttribute("transform") === "rotate(0)")).toBe(true);
+    expect(overlaps(shownWeekLabels)).toBe(false);
+    element.remove();
+  });
+
+  it("bruger stadig hierarki for måned, når diagramtypen ikke har datobaseret x-akse", () => {
+    const { element } = renderDateHierarchy(
+      [2025, 2025, 2025, 2026, 2026, 2026],
+      [1, 2, 3, 1, 2, 3],
+      "Month", "Months", 700, () => undefined, "t"
+    );
+
+    const periodLabels = Array.from(element.querySelectorAll<SVGTextElement>(
+      ".xaxisgroup .tick text"
+    )).filter(label => label.textContent !== "");
+    const yearLabels = Array.from(element.querySelectorAll<SVGTextElement>(
+      ".xaxisgroup .date-hierarchy .year-label"
+    ));
+
+    expect(periodLabels.map(label => label.textContent)).toEqual([
+      "january", "february", "march", "january", "february", "march"
+    ]);
+    expect(yearLabels.map(label => label.textContent)).toEqual(["2025", "2026"]);
+    element.remove();
+  });
+
+  it("genkender år og måned, selv når Power BI ikke leverer fælles query-navn", () => {
+    const { element } = renderDateHierarchy(
+      [2025, 2025, 2025, 2026, 2026, 2026],
+      [1, 2, 3, 1, 2, 3],
+      "Month", "Months", 700, () => undefined, "i", false, true
+    );
+
+    const periodLabels = Array.from(element.querySelectorAll<SVGTextElement>(
+      ".xaxisgroup .tick text"
+    )).filter(label => label.textContent !== "");
+    const yearLabels = Array.from(element.querySelectorAll<SVGTextElement>(
+      ".xaxisgroup .date-hierarchy .year-label"
+    ));
+
+    expect(periodLabels.map(label => label.textContent)).toEqual([
+      "january", "february", "march", "january", "february", "march"
+    ]);
+    expect(yearLabels.map(label => label.textContent)).toEqual(["2025", "2026"]);
+    element.remove();
+  });
+
+  it("genkender også dansk hierarkimetadata for år og måned", () => {
+    const { element } = renderDateHierarchy(
+      [2025, 2025, 2025, 2026, 2026, 2026],
+      [1, 2, 3, 1, 2, 3],
+      "Month", "Months", 700, () => undefined, "i", true
+    );
+
+    const periodLabels = Array.from(element.querySelectorAll<SVGTextElement>(
+      ".xaxisgroup .tick text"
+    )).filter(label => label.textContent !== "");
+    const yearLabels = Array.from(element.querySelectorAll<SVGTextElement>(
+      ".xaxisgroup .date-hierarchy .year-label"
+    ));
+
+    expect(periodLabels.map(label => label.textContent)).toEqual([
+      "january", "february", "march", "january", "february", "march"
+    ]);
+    expect(yearLabels.map(label => label.textContent)).toEqual(["2025", "2026"]);
+    element.remove();
+  });
+
+  it("bruger stadig hierarki for uge, når diagramtypen ikke har datobaseret x-akse", () => {
+    const { element } = renderDateHierarchy(
+      [2025, 2025, 2025, 2026, 2026, 2026],
+      [1, 2, 3, 1, 2, 3],
+      "Week", "Weeks", 700, () => undefined, "g"
+    );
+
+    const periodLabels = Array.from(element.querySelectorAll<SVGTextElement>(
+      ".xaxisgroup .tick text"
+    )).filter(label => label.textContent !== "");
+    const yearLabels = Array.from(element.querySelectorAll<SVGTextElement>(
+      ".xaxisgroup .date-hierarchy .year-label"
+    ));
+
+    expect(periodLabels.map(label => label.textContent)).toEqual(["1", "2", "3", "1", "2", "3"]);
+    expect(yearLabels.map(label => label.textContent)).toEqual(["2025", "2026"]);
+    element.remove();
+  });
+
+  it("bevarer År → Måned → Dato med korrekte datoer og måneds-/årsrækker", () => {
+    const { element } = renderFullDateHierarchy(
+      [2025, 2025, 2025, 2025, 2026],
+      [9, 9, 10, 10, 1],
+      [1, 2, 1, 2, 1],
+      900
+    );
+
+    const dateLabels = Array.from(element.querySelectorAll<SVGTextElement>(
+      ".xaxisgroup .tick text"
+    )).filter(label => label.textContent !== "");
+    const monthLabels = Array.from(element.querySelectorAll<SVGTextElement>(
+      ".xaxisgroup .date-hierarchy .month-label"
+    ));
+    const yearLabels = Array.from(element.querySelectorAll<SVGTextElement>(
+      ".xaxisgroup .date-hierarchy .year-label"
+    ));
+
+    expect(dateLabels.map(label => label.textContent)).toEqual([
+      "01-09-2025", "02-09-2025", "01-10-2025", "02-10-2025", "01-01-2026"
+    ]);
+    expect(monthLabels.map(label => label.textContent)).toEqual(["september", "october", "january"]);
+    expect(yearLabels.map(label => label.textContent)).toEqual(["2025", "2026"]);
+    element.remove();
+  });
+
+  it("genopbygger År → Måned → Dato, når dag-niveauet ikke er markeret som temporal", () => {
+    const { element } = renderFullDateHierarchy(
+      [2025, 2025, 2025], [9, 9, 10], [1, 2, 1], 700, "i", false, false
+    );
+
+    const dateLabels = Array.from(element.querySelectorAll<SVGTextElement>(
+      ".xaxisgroup .tick text"
+    )).filter(label => label.textContent !== "");
+
+    expect(dateLabels.map(label => label.textContent)).toEqual([
+      "01-09-2025", "02-09-2025", "01-10-2025"
+    ]);
+    element.remove();
+  });
+
+  it("bevarer dato-hierarkiets år/måned/dag på en kategorisk T-akse med separate query names", () => {
+    const { element } = renderFullDateHierarchy(
+      [2025, 2025, 2025], [9, 9, 10], [1, 2, 1], 700, "t", true
+    );
+
+    const dateLabels = Array.from(element.querySelectorAll<SVGTextElement>(
+      ".xaxisgroup .tick text"
+    )).filter(label => label.textContent !== "");
+    const yearLabels = Array.from(element.querySelectorAll<SVGTextElement>(
+      ".xaxisgroup .date-hierarchy .year-label"
+    ));
+
+    expect(dateLabels.map(label => label.textContent)).toEqual([
+      "01-09-2025", "02-09-2025", "01-10-2025"
+    ]);
+    expect(yearLabels.map(label => label.textContent)).toEqual(["2025"]);
+    element.remove();
+  });
+
   it("roterer datoer lodret, når de ikke kan stå ved siden af hinanden", () => {
     const dates: Date[] = Array.from({ length: 40 }, (_, index) =>
       new Date(2026, 8, index + 1));

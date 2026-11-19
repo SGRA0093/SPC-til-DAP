@@ -165,6 +165,266 @@ export function extractKeyDates(inputView: DataViewCategorical, idxs: number[]):
   return parseInputDates(dateGroup, idxs).dates;
 }
 
+export type dateHierarchyGranularity = "date" | "month" | "week";
+
+export type dateHierarchyData = {
+  granularity: dateHierarchyGranularity;
+  dates: (Date | undefined)[];
+  periodLabels: (string | undefined)[];
+  years: (number | undefined)[];
+};
+
+type dateHierarchyLevel = "year" | "month" | "week" | "date" | "day" | undefined;
+
+function normalizeHierarchyToken(candidate: string): string {
+  return candidate.toLowerCase()
+    .replace(/[æ]/g, "ae")
+    .replace(/[ø]/g, "oe")
+    .replace(/[å]/g, "aa")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z]/g, "");
+}
+
+function hierarchyLevelFromToken(candidate: string): dateHierarchyLevel {
+  const value: string = normalizeHierarchyToken(candidate);
+  if (["year", "years", "aar", "aars", "kalenderaar"].includes(value) || value.startsWith("year")) {
+    return "year";
+  }
+  if (["month", "months", "monthofyear", "monthname", "maaned", "maaneder", "maanedsnummer"].includes(value)
+    || value.startsWith("month")) {
+    return "month";
+  }
+  if (["week", "weeks", "weekofyear", "weekofmonth", "uge", "uger", "ugenummer"].includes(value)
+    || value.startsWith("week")) {
+    return "week";
+  }
+  if (["day", "days", "dayofmonth", "dayofyear", "dayofweek", "dag", "dage"].includes(value)
+    || value.startsWith("day")) {
+    return "day";
+  }
+  if (["date", "dates", "paddeddatabledates", "dato", "datoer"].includes(value)
+    || value.startsWith("date")) {
+    return "date";
+  }
+  return undefined;
+}
+
+/**
+ * Identifies the selected hierarchy level using both semantic category and
+ * query/display names. Power BI can localize display names (e.g. År, Måned,
+ * Uge), while its query names are often English and may vary by connector.
+ */
+function getDateHierarchyLevel(column: powerbi.DataViewCategoryColumn): dateHierarchyLevel {
+  const sourceType = column.source.type as unknown as { category?: string };
+  const queryLevel: string = (column.source.queryName ?? "").split(/[./\s:_-]/).pop() ?? "";
+  const candidates: string[] = [sourceType?.category ?? "", queryLevel, column.source.displayName ?? ""];
+  for (const candidate of candidates) {
+    const level: dateHierarchyLevel = hierarchyLevelFromToken(candidate);
+    if (level) return level;
+  }
+  return undefined;
+}
+
+function getHierarchyBaseName(column: powerbi.DataViewCategoryColumn, index: number): string {
+  const queryName: string = column.source.queryName ?? `date-${index}`;
+  const level: dateHierarchyLevel = getDateHierarchyLevel(column);
+  if (level) {
+    // Query names usually append the hierarchy level to the underlying date
+    // column. Remove that suffix regardless of whether Power BI separates it
+    // with a dot, space, colon, slash or underscore.
+    const segments: string[] = queryName.split(/[./\s:_-]+/);
+    const lastSegment: string = segments[segments.length - 1] ?? "";
+    if (hierarchyLevelFromToken(lastSegment) === level) {
+      const suffixIndex: number = queryName.toLowerCase().lastIndexOf(lastSegment.toLowerCase());
+      if (suffixIndex > 0) {
+        return queryName.slice(0, suffixIndex).replace(/[./\s:_-]+$/, "");
+      }
+    }
+
+    // When the connector uses an opaque query name, Power BI's source
+    // expression identifies the underlying column shared by all hierarchy
+    // levels. This avoids relying on localized display names for grouping.
+    const sourceExpression: unknown = (column.source as unknown as { expr?: unknown }).expr;
+    if (sourceExpression !== undefined) {
+      return `expr:${JSON.stringify(sourceExpression)}`;
+    }
+  }
+  return queryName;
+}
+
+function getMonthNumber(value: powerbi.PrimitiveValue): number | undefined {
+  if (typeof value === "number" && value >= 1 && value <= 12) return Math.floor(value) - 1;
+  if (value instanceof Date && Number.isFinite(value.getTime())) return value.getMonth();
+  if (typeof value !== "string") return undefined;
+  const normalized: string = value.trim().toLowerCase().replace(/[.]/g, "");
+  const numericMonth: number = Number(normalized);
+  if (Number.isFinite(numericMonth) && numericMonth >= 1 && numericMonth <= 12) {
+    return Math.floor(numericMonth) - 1;
+  }
+  const monthNames: string[] = [
+    "january", "february", "march", "april", "may", "june",
+    "july", "august", "september", "october", "november", "december"
+  ];
+  const englishIndex: number = monthNames.findIndex(name => name === normalized);
+  if (englishIndex >= 0) return englishIndex;
+  const monthAliases: string[][] = [
+    ["jan", "januar"], ["feb", "february", "februar"], ["mar", "march", "marts"],
+    ["apr", "april"], ["may", "maj"], ["jun", "june", "juni"],
+    ["jul", "july", "juli"], ["aug", "august"], ["sep", "sept", "september"],
+    ["oct", "okt", "oktober", "october"], ["nov", "november"], ["dec", "december"]
+  ];
+  const aliasIndex: number = monthAliases.findIndex(aliases => aliases.includes(normalized));
+  return aliasIndex >= 0 ? aliasIndex : undefined;
+}
+
+function parseHierarchyDate(value: powerbi.PrimitiveValue): Date | undefined {
+  if (value instanceof Date && Number.isFinite(value.getTime())) {
+    return new Date(value.getTime());
+  }
+  if (typeof value === "string") {
+    const match: RegExpMatchArray | null = value.trim().match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (match) {
+      const parsed: Date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+      return Number.isFinite(parsed.getTime()) ? parsed : undefined;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Extracts the actual selected date-hierarchy grain in addition to its date
+ * representation. This lets the x-axis distinguish Year-Month and Year-Week
+ * from a hierarchy that still includes individual dates.
+ */
+export function extractDateHierarchy(
+  inputView: DataViewCategorical,
+  idxs: number[]
+): dateHierarchyData | undefined {
+  const keyColumns: powerbi.DataViewCategoryColumn[] = (inputView.categories ?? [])
+    .filter(column => column.source?.roles?.["key"]);
+  const groups: Record<string, { column: powerbi.DataViewCategoryColumn; level: dateHierarchyLevel }[]> = {};
+
+  keyColumns.forEach((column, index) => {
+    const level: dateHierarchyLevel = getDateHierarchyLevel(column);
+    if (!level) return;
+    const baseName: string = getHierarchyBaseName(column, index);
+    (groups[baseName] ??= []).push({ column, level });
+  });
+
+  let hierarchy: { column: powerbi.DataViewCategoryColumn; level: dateHierarchyLevel }[] | undefined =
+    Object.values(groups).find(group =>
+      group.some(item => item.level === "year")
+        && group.some(item => ["month", "week", "date", "day"].includes(item.level ?? ""))
+    );
+
+  // Some Power BI connectors expose hierarchy levels with opaque and
+  // unrelated query names even though the semantic categories/display names
+  // clearly identify them. Accept only an unambiguous calendar shape: one
+  // Year plus one Month/Week, optionally followed by one Date/Day level.
+  if (!hierarchy) {
+    const identified = keyColumns.map(column => ({
+      column,
+      level: getDateHierarchyLevel(column)
+    }));
+    const years = identified.filter(item => item.level === "year");
+    const periods = identified.filter(item => item.level === "month" || item.level === "week");
+    const dayLevels = identified.filter(item => item.level === "date" || item.level === "day");
+    if (years.length === 1 && periods.length === 1 && dayLevels.length <= 1) {
+      hierarchy = identified.filter(item =>
+        item === years[0] || item === periods[0] || item === dayLevels[0]
+      );
+    }
+  }
+  if (!hierarchy) return undefined;
+
+  const yearColumn = hierarchy.find(item => item.level === "year")?.column;
+  const monthColumn = hierarchy.find(item => item.level === "month")?.column;
+  const periodColumns = hierarchy.filter(item => item.level !== "year");
+  const period = periodColumns[periodColumns.length - 1];
+  if (!period) return undefined;
+
+  const granularity: dateHierarchyGranularity = period.level === "month"
+    ? "month"
+    : period.level === "week" ? "week" : "date";
+  const rawYears: (number | undefined)[] = yearColumn
+    ? idxs.map(index => {
+      const value = yearColumn.values[index];
+      if (value === null || value === undefined) return undefined;
+      if (value instanceof Date && Number.isFinite(value.getTime())) {
+        return value.getFullYear();
+      }
+      const year = Number(value);
+      return Number.isFinite(year) ? year : undefined;
+    })
+    : idxs.map(() => undefined);
+  const periodLabels: (string | undefined)[] = idxs.map(index => {
+    const value = period.column.values[index];
+    return value === null || value === undefined ? undefined : String(value);
+  });
+
+  // Keep the existing parser for genuine temporal hierarchy columns. For
+  // numeric/text date-table levels (common for Year-Week), synthesize a date
+  // from the selected Year and Month/Week values.
+  let dates: (Date | undefined)[] | undefined;
+  // For month/week we deliberately synthesize from the actual selected level:
+  // parseInputDates only understands Power BI's English temporal categories,
+  // while semantic models can expose localized or numeric category values.
+  if (granularity === "date"
+    && hierarchy.every(item => (item.column.source.type as unknown as { temporal?: boolean })?.temporal)) {
+    dates = parseInputDates(hierarchy.map(item => item.column), idxs).dates;
+  }
+  if (!dates || dates.length !== idxs.length || dates.some(date => !(date instanceof Date) || !Number.isFinite(date.getTime()))) {
+    dates = idxs.map((index, row) => {
+      const year = rawYears[row];
+      const value = period.column.values[index];
+      if (year === undefined || value === null || value === undefined) return undefined;
+      if (granularity === "month") {
+        const month = getMonthNumber(value);
+        return month === undefined ? undefined : new Date(year, month, 1);
+      }
+      if (granularity === "week") {
+        const week = Number(String(value).match(/\d+/)?.[0]);
+        return Number.isFinite(week) ? new Date(year, 0, (week - 1) * 7 + 1) : undefined;
+      }
+      const directDate: Date | undefined = parseHierarchyDate(value);
+      if (directDate) return directDate;
+      const day: number = Number(String(value).match(/^\s*(\d{1,2})\s*$/)?.[1]);
+      const month: number | undefined = monthColumn
+        ? getMonthNumber(monthColumn.values[index])
+        : undefined;
+      return Number.isFinite(day) && day >= 1 && day <= 31 && month !== undefined
+        ? new Date(year, month, day)
+        : undefined;
+    });
+  }
+
+  // Some connectors mark the day level as non-temporal even though it belongs
+  // to the same date hierarchy. In that case parseInputDates can return a valid
+  // first-of-month placeholder; rebuild from the selected Year, Month and Day
+  // values so the date labels do not collapse onto the first day of each month.
+  if (granularity === "date" && monthColumn) {
+    dates = idxs.map((index, row) => {
+      const value: powerbi.PrimitiveValue = period.column.values[index];
+      const directDate: Date | undefined = parseHierarchyDate(value);
+      if (directDate) return directDate;
+      const day: number = Number(String(value).match(/^\s*(\d{1,2})\s*$/)?.[1]);
+      const month: number | undefined = getMonthNumber(monthColumn.values[index]);
+      const year: number | undefined = rawYears[row];
+      if (year !== undefined && month !== undefined && Number.isFinite(day) && day >= 1 && day <= 31) {
+        return new Date(year, month, day);
+      }
+      return dates?.[row];
+    });
+  }
+
+  const years: (number | undefined)[] = rawYears.map((year, index) =>
+    year ?? (dates?.[index] instanceof Date ? dates[index]!.getFullYear() : undefined)
+  );
+
+  return { granularity, dates, periodLabels, years };
+}
+
 export default function extractDataColumn<T extends TargetT>(inputView: DataViewCategorical,
                                               name: string,
                                               inputSettings: settingsValueType,

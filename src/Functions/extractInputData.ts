@@ -3,7 +3,7 @@ type DataViewCategoryColumn = powerbi.DataViewCategoryColumn;
 type PrimitiveValue = powerbi.PrimitiveValue;
 type DataViewCategorical = powerbi.DataViewCategorical;
 type VisualTooltipDataItem = powerbi.extensibility.VisualTooltipDataItem;
-import extractDataColumn, { extractKeyDates } from "../Functions/extractDataColumn";
+import extractDataColumn, { extractDateHierarchy, extractKeyDates, type dateHierarchyGranularity } from "../Functions/extractDataColumn";
 import extractValues from "../Functions/extractValues";
 import extractConditionalFormatting from "../Functions/extractConditionalFormatting";
 import validateInputData from "../Functions/validateInputData";
@@ -20,6 +20,9 @@ export type dataObject = {
   anyHighlights: boolean;
   categories: DataViewCategoryColumn;
   dates?: (Date | undefined)[];
+  dateGranularity?: dateHierarchyGranularity;
+  datePeriodLabels?: (string | undefined)[];
+  datePeriodYears?: (number | undefined)[];
   groupings?: string[];
   groupingIndexes?: number[];
   scatter_formatting: settingsValueType["scatter"][];
@@ -41,6 +44,9 @@ function invalidInputData(inputValidStatus: ValidationT): dataObject {
     anyHighlights: false,
     categories: {} as DataViewCategoryColumn,
     dates: undefined,
+    dateGranularity: undefined,
+    datePeriodLabels: undefined,
+    datePeriodYears: undefined,
     groupings: [],
     groupingIndexes: [],
     scatter_formatting: [],
@@ -64,7 +70,8 @@ export default function extractInputData(inputView: DataViewCategorical,
   const denominators: (number | undefined)[] | undefined = extractDataColumn<number[]>(inputView, "denominators", inputSettings, idxs);
   const xbar_sds: (number | undefined)[] | undefined = extractDataColumn<number[]>(inputView, "xbar_sds", inputSettings, idxs);
   const keys: (string | undefined)[] = extractDataColumn<string[]>(inputView, "key", inputSettings, idxs) as (string | undefined)[];
-  const dates: (Date | undefined)[] | undefined = extractKeyDates(inputView, idxs);
+  const dateHierarchy = extractDateHierarchy(inputView, idxs);
+  const dates: (Date | undefined)[] | undefined = dateHierarchy?.dates ?? extractKeyDates(inputView, idxs);
   const tooltips = extractDataColumn<VisualTooltipDataItem[][]>(inputView, "tooltips", inputSettings, idxs);
   const groupings: (string | undefined)[] | undefined = extractDataColumn<string[]>(inputView, "groupings", inputSettings, idxs);
   const labels: (string | undefined)[] | undefined = extractDataColumn<string[]>(inputView, "labels", inputSettings, idxs);
@@ -139,6 +146,9 @@ export default function extractInputData(inputView: DataViewCategorical,
     anyHighlights: !isNullOrUndefined(curr_highlights) && curr_highlights.filter(d => !isNullOrUndefined(d)).length > 0,
     categories: inputView.categories![0],
     dates: dates ? extractValues(dates, valid_ids) : undefined,
+    dateGranularity: dateHierarchy?.granularity,
+    datePeriodLabels: dateHierarchy ? extractValues(dateHierarchy.periodLabels, valid_ids) : undefined,
+    datePeriodYears: dateHierarchy ? extractValues(dateHierarchy.years, valid_ids) : undefined,
     groupings: valid_groupings,
     groupingIndexes: groupingIndexes,
     scatter_formatting: extractValues(scatter_cond, valid_ids),

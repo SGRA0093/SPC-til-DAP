@@ -40,7 +40,13 @@ function formatDateTick(date: Date, locale: string): string {
     : `${day}-${month}-${year}`;
 }
 
-type DateTick = { x: number; date: Date };
+type DateTick = {
+  x: number;
+  date?: Date;
+  granularity?: "date" | "month" | "week";
+  periodLabel?: string;
+  year?: number;
+};
 type DateGroup = { key: string; label: string; year: number; month: number; first: number; last: number };
 
 /**
@@ -111,6 +117,7 @@ function fitBandFontSize(label: string, availableWidth: number, fontPx: number, 
 function groupDatesByMonth(ticks: DateTick[], locale: string): DateGroup[] {
   const groups: DateGroup[] = [];
   for (const tick of ticks) {
+    if (!tick.date) continue;
     const year: number = tick.date.getFullYear();
     const month: number = tick.date.getMonth();
     const key: string = `${year}-${month}`;
@@ -127,28 +134,50 @@ function groupDatesByMonth(ticks: DateTick[], locale: string): DateGroup[] {
   return groups;
 }
 
+function groupTicksByYear(ticks: DateTick[]): DateGroup[] {
+  const groups: DateGroup[] = [];
+  for (const tick of ticks) {
+    const year: number | undefined = tick.year ?? tick.date?.getFullYear();
+    if (year === undefined || !Number.isFinite(year)) {
+      continue;
+    }
+    const key: string = String(year);
+    const existing: DateGroup | undefined = groups[groups.length - 1];
+    if (existing?.key === key) {
+      existing.last = tick.x;
+      continue;
+    }
+    groups.push({ key, label: key, year, month: 0, first: tick.x, last: tick.x });
+  }
+  return groups;
+}
+
 function addDateHierarchy(
   xAxisGroup: d3.Selection<SVGGElement, unknown, null, undefined>,
   ticks: DateTick[],
   visualObj: Visual,
   xAxisProperties: axisProperties,
-  tickRotation: number
+  tickRotation: number,
+  granularity: "date" | "month" | "week"
 ): void {
   if (ticks.length === 0) {
     return;
   }
 
   const locale: string = getDateLocale(visualObj);
-  const monthGroups: DateGroup[] = groupDatesByMonth(ticks, locale);
-  const yearGroups: DateGroup[] = [];
-  monthGroups.forEach(month => {
-    const previous: DateGroup | undefined = yearGroups[yearGroups.length - 1];
-    if (previous?.year === month.year) {
-      previous.last = month.last;
-    } else {
-      yearGroups.push({ ...month, key: String(month.year), label: String(month.year) });
-    }
-  });
+  const periodAxis: boolean = granularity === "month" || granularity === "week";
+  const monthGroups: DateGroup[] = periodAxis ? [] : groupDatesByMonth(ticks, locale);
+  const yearGroups: DateGroup[] = periodAxis ? groupTicksByYear(ticks) : [];
+  if (!periodAxis) {
+    monthGroups.forEach(month => {
+      const previous: DateGroup | undefined = yearGroups[yearGroups.length - 1];
+      if (previous?.year === month.year) {
+        previous.last = month.last;
+      } else {
+        yearGroups.push({ ...month, key: String(month.year), label: String(month.year) });
+      }
+    });
+  }
 
   // Datoer, måned og år står i samme skrifttype og størrelse, som aksemærkerne
   // er sat til. Rækkernes højde følger skriften, så en større skrift ikke
@@ -156,17 +185,31 @@ function addDateHierarchy(
   const dateFontPt: number = Number.parseFloat(xAxisProperties.tick_size) || 9;
   const fontPx: number = ptToPx(dateFontPt);
   const rowHeight: number = Math.max(22, Math.round(fontPx * 1.6));
-  const rowTextOffset: number = rowHeight / 2 + fontPx * 0.35;
+  const rowTextOffset: number = granularity === "week"
+    ? Math.max(10, fontPx)
+    : rowHeight / 2 + fontPx * 0.35;
   // Vandrette etiketter bruger kun én linje; lodrette etiketter kræver
   // plads til hele datoens længde. Måned og år får hver sin række nedenunder.
-  const dateLabelDepth: number = tickRotation === 0
-    ? Math.max(20, fontPx * 1.8)
-    : Math.max(42, fontPx * 5.2);
+  const dateLabelDepth: number = granularity === "week"
+    ? (tickRotation === 0 ? Math.max(12, fontPx * 1.05) : Math.max(24, fontPx * 2.4))
+    : tickRotation === 0
+      ? Math.max(20, fontPx * 1.8)
+      : Math.max(42, fontPx * 5.2);
   // .xaxisgroup er allerede flyttet ned til aksens baseline. Koordinaterne
   // her skal derfor være lokale for gruppen og ikke indeholde xAxisHeight.
-  const monthLineY: number = dateLabelDepth + 14;
+  // Week numbers are short and stay horizontal, so the year band can sit
+  // close underneath them. Month names remain vertical and need more depth.
+  // Ugenumre skal have lidt luft på begge sider. Flyt teksten en smule ned
+  // fra aksen, og flyt årsskillelinjen tilsvarende plus 2 px, så der også
+  // bevares en synlig afstand mellem ugenummeret og årsrækken.
+  const weekLabelBaselineShift: number = granularity === "week" && tickRotation === 0
+    ? fontPx * 0.19
+    : 0;
+  const monthLineY: number = dateLabelDepth + (granularity === "week"
+    ? 4 + weekLabelBaselineShift + 2
+    : 14);
   const monthTextY: number = monthLineY + rowTextOffset;
-  const yearLineY: number = monthLineY + rowHeight;
+  const yearLineY: number = periodAxis ? monthLineY : monthLineY + rowHeight;
   const yearTextY: number = yearLineY + rowTextOffset;
   // D3 AxisScale er typet som muligvis undefined, men den konkrete lineære
   // x-skala returnerer altid en koordinat for gyldige domæneværdier.
@@ -202,50 +245,65 @@ function addDateHierarchy(
   const labelColour: string = visualObj.plotProperties.displayPlot ? xAxisProperties.tick_colour : "#FFFFFF";
   const lineWidth: number = Math.max(0.5, xAxisProperties.grid_width || 1);
 
-  // Månedernes øverste linje og lodrette skel svarer til Power BI's
-  // kategoriske datohierarki under de enkelte datoetiketter.
-  hierarchy.selectAll<SVGLineElement, typeof monthBounds[number]>(".month-boundary")
-    .data(monthBounds)
-    .join("line")
-    .classed("month-boundary", true)
-    .attr("x1", d => d.left)
-    .attr("x2", d => d.right)
-    .attr("y1", monthLineY)
-    .attr("y2", monthLineY)
-    .attr("stroke", separatorColour)
-    // Behold geometry for month layout, but do not draw a horizontal line
-    // between the date labels and the month names.
-    .attr("stroke-opacity", 0)
-    .attr("stroke-width", lineWidth);
+  if (!periodAxis) {
+    // Månedernes øverste linje og lodrette skel svarer til Power BI's
+    // kategoriske datohierarki under de enkelte datoetiketter.
+    hierarchy.selectAll<SVGLineElement, typeof monthBounds[number]>(".month-boundary")
+      .data(monthBounds)
+      .join("line")
+      .classed("month-boundary", true)
+      .attr("x1", d => d.left)
+      .attr("x2", d => d.right)
+      .attr("y1", monthLineY)
+      .attr("y2", monthLineY)
+      .attr("stroke", separatorColour)
+      // Behold geometry for month layout, but do not draw a horizontal line
+      // between the date labels and the month names.
+      .attr("stroke-opacity", 0)
+      .attr("stroke-width", lineWidth);
 
-  hierarchy.selectAll<SVGLineElement, typeof monthBounds[number]>(".month-divider")
-    .data(monthBounds.slice(1))
-    .join("line")
-    .classed("month-divider", true)
-    .attr("x1", d => d.left)
-    .attr("x2", d => d.left)
-    // Skellene mellem månederne starter ved aksen (y = 0) og går ned gennem
-    // datoerne, som i Power BI's linjediagram, i stedet for først under dem.
-    .attr("y1", 0)
-    .attr("y2", yearLineY + 1)
-    .attr("stroke", separatorColour)
-    .attr("stroke-width", lineWidth);
+    hierarchy.selectAll<SVGLineElement, typeof monthBounds[number]>(".month-divider")
+      .data(monthBounds.slice(1))
+      .join("line")
+      .classed("month-divider", true)
+      .attr("x1", d => d.left)
+      .attr("x2", d => d.left)
+      // Skellene mellem månederne starter ved aksen (y = 0) og går ned gennem
+      // datoerne, som i Power BI's linjediagram, i stedet for først under dem.
+      .attr("y1", 0)
+      .attr("y2", yearLineY + 1)
+      .attr("stroke", separatorColour)
+      .attr("stroke-width", lineWidth);
 
-  hierarchy.selectAll<SVGTextElement, typeof monthBounds[number]>(".month-label")
-    .data(monthBounds)
-    .join("text")
-    .classed("month-label", true)
-    .attr("x", d => (d.left + d.right) / 2)
-    .attr("y", monthTextY)
-    .attr("text-anchor", "middle")
-    .style("font-size", d => fitMonthLabel(
-      d.group, Math.max(0, d.right - d.left - 4), locale, fontPx, dateFontPt
-    ).fontSize)
-    .style("font-family", xAxisProperties.tick_font)
-    .style("fill", labelColour)
-    .text(d => fitMonthLabel(
-      d.group, Math.max(0, d.right - d.left - 4), locale, fontPx, dateFontPt
-    ).text);
+    hierarchy.selectAll<SVGTextElement, typeof monthBounds[number]>(".month-label")
+      .data(monthBounds)
+      .join("text")
+      .classed("month-label", true)
+      .attr("x", d => (d.left + d.right) / 2)
+      .attr("y", monthTextY)
+      .attr("text-anchor", "middle")
+      .style("font-size", d => fitMonthLabel(
+        d.group, Math.max(0, d.right - d.left - 4), locale, fontPx, dateFontPt
+      ).fontSize)
+      .style("font-family", xAxisProperties.tick_font)
+      .style("fill", labelColour)
+      .text(d => fitMonthLabel(
+        d.group, Math.max(0, d.right - d.left - 4), locale, fontPx, dateFontPt
+      ).text);
+  } else {
+    // Year separators span the period labels, just as month separators span
+    // the daily labels in the date-level layout.
+    hierarchy.selectAll<SVGLineElement, typeof yearBounds[number]>(".year-divider")
+      .data(yearBounds.slice(1))
+      .join("line")
+      .classed("year-divider", true)
+      .attr("x1", d => d.left)
+      .attr("x2", d => d.left)
+      .attr("y1", 0)
+      .attr("y2", yearLineY + 1)
+      .attr("stroke", separatorColour)
+      .attr("stroke-width", lineWidth);
+  }
 
   hierarchy.selectAll<SVGLineElement, typeof yearBounds[number]>(".year-boundary")
     .data(yearBounds)
@@ -291,10 +349,23 @@ export default function drawXAxis(selection: svgBaseType, visualObj: Visual) {
   }
 
   const xAxisProperties: axisProperties = visualObj.plotProperties.xAxis;
+  // Behold hierarkiets metadata, selv når diagramtypen ikke bruger en egentlig
+  // Date på x-aksen (fx G- og T-diagrammer). Det er netop ellers her, at
+  // måned/uge falder tilbage til Power BI's sammensatte "år + periode"-etiket.
   const allDateTicks: DateTick[] = visualObj.viewModel.tickLabels
-    .filter(tick => tick.date instanceof Date && Number.isFinite(tick.date.getTime()))
-    .map(tick => ({ x: tick.x, date: tick.date as Date }));
-  const useDateHierarchy: boolean = allDateTicks.length > 1
+    // Keep ordinary Date categories even when they do not carry explicit
+    // hierarchy metadata. Only month/week periods may legitimately omit Date.
+    .filter(tick => (tick.date instanceof Date && Number.isFinite(tick.date.getTime()))
+      || tick.dateGranularity === "month" || tick.dateGranularity === "week")
+    .map(tick => ({
+      x: tick.x,
+      date: tick.date instanceof Date && Number.isFinite(tick.date.getTime()) ? tick.date : undefined,
+      granularity: tick.dateGranularity,
+      periodLabel: tick.periodLabel,
+      year: tick.year
+    }));
+  const dateGranularity: "date" | "month" | "week" = allDateTicks[0]?.granularity ?? "date";
+  const useDateHierarchy: boolean = allDateTicks.length > 0
     && allDateTicks.length === visualObj.viewModel.tickLabels.length
     && xAxisProperties.ticks;
   const dateHierarchyTicks: DateTick[] = allDateTicks
@@ -302,15 +373,20 @@ export default function drawXAxis(selection: svgBaseType, visualObj: Visual) {
   // Selve datomærkerne følger brugerens maksimum. Måned/år-rækkerne nedenunder
   // bruger fortsat alle datoer, så periodernes inddeling ikke forsvinder,
   // blot fordi der vises færre datoetiketter.
-  const visibleDateTicks: DateTick[] = limitDateTicks(
-    dateHierarchyTicks,
-    xAxisProperties.tick_count
-  );
+  const visibleDateTicks: DateTick[] = dateGranularity === "month"
+    // Keep every month visible: a month is already a coarse period label.
+    ? dateHierarchyTicks
+    // Week numbers and individual dates can be numerous, so respect the
+    // configured maximum and let the year band retain the full range.
+    : limitDateTicks(dateHierarchyTicks, xAxisProperties.tick_count);
   const locale: string = getDateLocale(visualObj);
   // For datoakser betyder standardrotationen (0), at layoutet selv vælger:
   // vandret, hvis alle etiketter kan være der, ellers lodret. En eksplicit
   // rotation fra brugeren respekteres altid.
   let tickRotation: number = xAxisProperties.tick_rotation;
+  if (useDateHierarchy && dateGranularity === "month" && tickRotation === 0) {
+    tickRotation = -90;
+  }
   const xAxis: d3.Axis<number> = d3.axisBottom(visualObj.plotProperties.xScale);
 
   // D3's axis call updates its own ticks, but does not remove custom children
@@ -322,7 +398,26 @@ export default function drawXAxis(selection: svgBaseType, visualObj: Visual) {
     xAxis.tickValues(visibleDateTicks.map(tick => tick.x));
     xAxis.tickFormat(axisX => {
       const match: DateTick | undefined = visibleDateTicks.find(tick => tick.x === Number(axisX));
-      return match ? formatDateTick(match.date, locale) : "";
+      if (!match) return "";
+      if (dateGranularity === "month") {
+        if (match.date) {
+          return new Intl.DateTimeFormat(locale, { month: "long" })
+            .format(match.date)
+            .toLocaleLowerCase(locale);
+        }
+        const numericMonth: number = Number(match.periodLabel);
+        if (Number.isFinite(numericMonth) && numericMonth >= 1 && numericMonth <= 12) {
+          const year: number = match.year ?? 2000;
+          return new Intl.DateTimeFormat(locale, { month: "long" })
+            .format(new Date(year, numericMonth - 1, 1))
+            .toLocaleLowerCase(locale);
+        }
+        return match.periodLabel?.toLocaleLowerCase(locale) ?? "";
+      }
+      if (dateGranularity === "week") {
+        return match.periodLabel ?? "";
+      }
+      return match.date ? formatDateTick(match.date, locale) : (match.periodLabel ?? "");
     });
   } else if (xAxisProperties.ticks) {
     if (xAxisProperties.tick_count) {
@@ -359,7 +454,9 @@ export default function drawXAxis(selection: svgBaseType, visualObj: Visual) {
       ? "middle"
       : (rotation < 0 ? "end" : "start");
     const dx: string = rotation === 0 ? "0" : (rotation < 0 ? "-.8em" : ".8em");
-    const dy: string = rotation === 0 ? ".71em" : (rotation < 0 ? "-.15em" : ".15em");
+    const dy: string = rotation === 0
+      ? (useDateHierarchy && dateGranularity === "week" ? ".9em" : ".71em")
+      : (rotation < 0 ? "-.15em" : ".15em");
     tickText
       .style("text-anchor", anchor)
       .attr("dx", dx)
@@ -376,16 +473,23 @@ export default function drawXAxis(selection: svgBaseType, visualObj: Visual) {
   // Standardlayout for datoer prøver først vandret visning. Hvis etiketterne
   // overlapper, drejes alle datoer lodret. applyTickTextLayout nulstiller
   // display-stilen, så etiketter skjult ved en tidligere optegning genskabes.
-  if (useDateHierarchy && xAxisProperties.tick_rotation === 0) {
+  if (useDateHierarchy && dateGranularity === "month" && xAxisProperties.tick_rotation === 0) {
+    // Month names are intentionally vertical, even when they would fit in a
+    // horizontal row. This keeps a consistent month/year hierarchy.
+    tickRotation = -90;
+    applyTickTextLayout(tickRotation);
+  } else if (tickRotation === 0) {
+    // Week numbers stay horizontal. Hide only labels that physically collide;
+    // the tick-count setting has already reduced the candidate set first.
     hideOverlappingTickLabels(tickText.nodes());
     const hasOverlappingLabels: boolean = tickText.nodes()
       .some(label => label.style.display === "none");
-    if (hasOverlappingLabels) {
+    if (useDateHierarchy && dateGranularity === "date"
+      && xAxisProperties.tick_rotation === 0 && hasOverlappingLabels) {
+      // Individual date labels keep the previous automatic vertical fallback.
       tickRotation = -90;
       applyTickTextLayout(tickRotation);
     }
-  } else if (tickRotation === 0) {
-    hideOverlappingTickLabels(tickText.nodes());
   }
 
   currentXAxisGroup.selectAll<SVGGElement, unknown>(".tick").each(function () {
@@ -401,7 +505,7 @@ export default function drawXAxis(selection: svgBaseType, visualObj: Visual) {
   });
 
   if (useDateHierarchy) {
-    addDateHierarchy(currentXAxisGroup, dateHierarchyTicks, visualObj, xAxisProperties, tickRotation);
+    addDateHierarchy(currentXAxisGroup, dateHierarchyTicks, visualObj, xAxisProperties, tickRotation, dateGranularity);
   }
 
   const textX: number = visualObj.viewModel.svgWidth / 2;
