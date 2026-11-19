@@ -26,6 +26,7 @@ export type assessmentCase =
   | "unstable_undesired"
   | "unstable_desired"
   | "unstable_unknown_direction"
+  | "unstable_beyond_limits"
   | "stable_target_missed"
   | "stable_target_met"
   | "stable_no_target";
@@ -43,6 +44,8 @@ export type assessmentInput = {
   long_run_signal: boolean;
   /** Har Anhøj-reglen om for få kryds slået til (og er den slået til i indstillingerne)? */
   few_crossings_signal: boolean;
+  /** Antal punkter uden for 99%-kontrolgrænserne; null for seriediagrammer. */
+  n_beyond_limits: number | null;
   /** Centerlinjen i den seneste fase: medianen på et seriediagram. */
   centerline: number | undefined;
   /** Seneste observation. */
@@ -57,7 +60,7 @@ export type processAssessment = {
   status: processStatus;
   case: assessmentCase;
   stable: boolean;
-  reasons: { few_crossings: boolean; long_run: boolean };
+  reasons: { few_crossings: boolean; long_run: boolean; beyond_limits: boolean };
 };
 
 /**
@@ -99,12 +102,19 @@ export function assessProcess(input: assessmentInput): processAssessment | null 
 
   const reasons = {
     few_crossings: input.few_crossings_signal,
-    long_run: input.long_run_signal
+    long_run: input.long_run_signal,
+    beyond_limits: input.n_beyond_limits !== null && input.n_beyond_limits > 0
   };
-  const stable: boolean = !reasons.few_crossings && !reasons.long_run;
+  const stable: boolean = !reasons.few_crossings && !reasons.long_run && !reasons.beyond_limits;
   const direction: improvementDirection = improvementDirection(input.operator);
 
   if (!stable) {
+    // Et punkt uden for kontrolgrænserne er et signal om særlig årsagsvariation.
+    // Hvis det ikke samtidig er en runs-regel, kan retningen ikke udledes af
+    // det seneste punkt alene (det kan være et tidligere punkt i fasen).
+    if (reasons.beyond_limits && !reasons.few_crossings && !reasons.long_run) {
+      return { status: "studér", case: "unstable_beyond_limits", stable, reasons };
+    }
     // Udsvinget er det seneste punkts afstand til centerlinjen. Ligger det
     // præcis på linjen, eller mangler retningen, kan udsvinget ikke kaldes
     // hverken ønsket eller uønsket, og det forsigtige Studér gælder.

@@ -605,6 +605,7 @@ export default class viewModelClass {
       n_points: nPoints,
       long_run_signal: stats.long_run_signal && settings.outliers.anhoj_long_run,
       few_crossings_signal: stats.few_crossings_signal && settings.outliers.anhoj_few_crossings,
+      n_beyond_limits: stats.n_beyond_limits,
       centerline: centerline,
       latest: limits.values?.[lastIndex],
       target: target,
@@ -619,6 +620,7 @@ export default class viewModelClass {
       longest_run_max: stats.longest_run_max,
       n_crossings: stats.n_crossings,
       n_crossings_min: stats.n_crossings_min,
+      n_beyond_limits: stats.n_beyond_limits,
       centerline_text: formatValues(centerline, "value"),
       target_text: formatValues(target, "value"),
       centerline_noun: derived.chart_type_props.name === "run" ? "median" : "centerlinje"

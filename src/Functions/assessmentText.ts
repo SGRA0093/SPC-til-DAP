@@ -13,6 +13,8 @@ export type assessmentTextContext = {
   longest_run_max: number | null;
   n_crossings: number | null;
   n_crossings_min: number | null;
+  /** Antal punkter uden for 99%-kontrolgrænserne; null for seriediagrammer. */
+  n_beyond_limits: number | null;
   /** Centerlinjen, formateret som på y-aksen. */
   centerline_text: string;
   /** Udviklingsmålet, formateret som på y-aksen. Tomt, hvis der intet mål er. */
@@ -36,20 +38,27 @@ function countText(value: number | null): string {
   return value === null ? "–" : `${value}`;
 }
 
-function statsBlock(ctx: assessmentTextContext): string {
-  return "Faktisk / Forventet v. naturlig variation *" + NL +
-    `• Længste forløb: ${countText(ctx.longest_run)} (forventet <= ${countText(ctx.longest_run_max)})` + NL +
-    `• Antal kryds: ${countText(ctx.n_crossings)} (forventet >= ${countText(ctx.n_crossings_min)})` + NL +
-    `* ved en tidsserie på ${ctx.n_points} målinger.`;
-}
-
 function reasonText(assessment: processAssessment, ctx: assessmentTextContext, definite: string): string {
-  const kryds: string = `for få (${countText(ctx.n_crossings)}) kryds på tværs af ${definite}`;
-  const forloeb: string = `mindst ét langt forløb på ${countText(ctx.longest_run)} enkeltmålinger i træk over/under ${definite}`;
-  if (assessment.reasons.few_crossings && assessment.reasons.long_run) {
-    return `${kryds} og ${forloeb}`;
+  const reasons: string[] = [];
+  if (assessment.reasons.few_crossings) {
+    reasons.push(`for få (${countText(ctx.n_crossings)}) kryds på tværs af ${definite}`);
   }
-  return assessment.reasons.few_crossings ? kryds : forloeb;
+  if (assessment.reasons.long_run) {
+    reasons.push(`mindst ét langt forløb på (${countText(ctx.longest_run)}) enkeltmålinger i træk over/under ${definite}`);
+  }
+  if (assessment.reasons.beyond_limits && ctx.n_beyond_limits !== null) {
+    const count: number = ctx.n_beyond_limits;
+    reasons.push(`(${count}) ${count === 1 ? "punkt" : "punkter"} uden for 99%-kontrolgrænserne`);
+  }
+  if (reasons.length <= 1) {
+    return reasons[0] ?? "";
+  }
+  // Brug "og" mellem to samtidige signalårsager, så den naturlige tekst
+  // bevarer den eksisterende formulering for få kryds og langt forløb.
+  if (reasons.length === 2) {
+    return `${reasons[0]} og ${reasons[1]}`;
+  }
+  return `${reasons.slice(0, -1).join(", ")} og ${reasons[reasons.length - 1]}`;
 }
 
 export function buildAssessmentText(assessment: processAssessment, ctx: assessmentTextContext): string {
@@ -57,10 +66,10 @@ export function buildAssessmentText(assessment: processAssessment, ctx: assessme
   const definite: string = noun.endsWith("e") ? `${noun}n` : `${noun}en`;
   const header = (status: string, subtitle: string): string =>
     `VURDERING: ${status}` + NL + subtitle + NL + NL;
-  const tail: string = NL + NL + statsBlock(ctx) + NL + NL + RUN_CHART_FOOTER;
-  const unstable: string = "Run-charten viser en ustabil proces, da der ses " +
+  const tail: string = NL + NL + RUN_CHART_FOOTER;
+  const unstable: string = "Diagrammet viser en ustabil proces, da der ses " +
                            reasonText(assessment, ctx, definite) + ".";
-  const stable: string = "Run-charten viser en stabil proces med naturlig variation.";
+  const stable: string = "Diagrammet viser en stabil proces med naturlig variation.";
   const capDefinite: string = definite.charAt(0).toUpperCase() + definite.slice(1);
 
   switch (assessment.case) {
@@ -76,17 +85,24 @@ export function buildAssessmentText(assessment: processAssessment, ctx: assessme
         " Det kan ikke afgøres, om udsvinget går i en ønsket eller uønsket retning, fordi udviklingsmålets " +
         "retning ikke er angivet, eller fordi det seneste punkt ligger på " + definite + ". " +
         "I bør studere processen for at afgøre årsagen til det ikke-tilfældige udsving." + tail;
+    case "unstable_beyond_limits": {
+      const beyondCount: number = ctx.n_beyond_limits ?? 0;
+      return header("STUDÉR", "Punkter uden for 99%-kontrolgrænserne") +
+        `Diagrammet viser en ustabil proces, da (${beyondCount}) ${beyondCount === 1 ? "punkt ligger" : "punkter ligger"} ` +
+        "uden for 99%-kontrolgrænserne. Det er et signal om særlig årsagsvariation. " +
+        "I bør undersøge, hvad der har forårsaget afvigelsen." + tail;
+    }
     case "stable_target_missed":
       return header("STUDÉR", "Stabil proces, men udviklingsmål ikke nået") + stable +
-        ` Indikatorens ${noun} (${ctx.centerline_text}) opnår imidlertid ikke udviklingsmålet på ${ctx.target_text}. ` +
+        ` Indikatorens ${noun} (${ctx.centerline_text}) opnår imidlertid ikke udviklingsmålet på (${ctx.target_text}). ` +
         "I bør derfor studere arbejdsgangene nærmere for at identificere årsager for at løfte niveauet." + tail;
     case "stable_target_met":
       return header("OBSERVÉR", "Stabil proces og udviklingsmål opnået") + stable +
-        ` ${capDefinite} (${ctx.centerline_text}) opfylder udviklingsmålet på ${ctx.target_text}. ` +
+        ` ${capDefinite} (${ctx.centerline_text}) opfylder udviklingsmålet på (${ctx.target_text}). ` +
         "Man bør derfor fortsætte den løbende overvågning." + tail;
     case "stable_no_target":
       return header("OBSERVÉR", "Stabil proces (intet udviklingsmål angivet)") + stable +
-        ` ${capDefinite} ligger på ${ctx.centerline_text}. ` +
+        ` ${capDefinite} ligger på (${ctx.centerline_text}). ` +
         "Da der ikke er opsat et udviklingsmål, bør man fortsætte den løbende overvågning." + tail;
   }
 }

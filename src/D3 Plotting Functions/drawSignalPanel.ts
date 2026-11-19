@@ -4,6 +4,7 @@ import type { groupStatsObject } from "../Classes/viewModelClass";
 import type { settingsValueType } from "../settings";
 import { buildSignalPanelBlocks, type signalPanelBlock, type signalPanelRow,
          type runsRulesEnabled } from "../Functions/signalPanelRows";
+import chartTypeHelp from "../Functions/chartTypeHelp";
 
 type panelGroupType = d3.Selection<SVGGElement, unknown, null, undefined>;
 type textSelectionType = d3.Selection<SVGTextElement, unknown, null, undefined>;
@@ -118,6 +119,35 @@ function appendText(group: panelGroupType, text: string, x: number, y: number,
               .style("font-family", PANEL_FONT)
               .style("font-size", `${size}px`)
               .style("fill", colour);
+}
+
+/** Draw a paragraph as wrapped SVG text and return its next baseline. */
+function appendWrappedText(group: panelGroupType, text: string, x: number, y: number,
+                        maxWidth: number, size: number, colour: string): number {
+  const maxChars: number = Math.max(8, Math.floor(maxWidth / (size * 0.5)));
+  const lines: string[] = [];
+  text.split(/\s+/).filter(Boolean).forEach(word => {
+    const last: string | undefined = lines[lines.length - 1];
+    if (!last || `${last} ${word}`.length > maxChars) {
+      lines.push(word);
+    } else {
+      lines[lines.length - 1] = `${last} ${word}`;
+    }
+  });
+  const textSel = group.append("text")
+    .classed("assessment-description", true)
+    .attr("data-wrap-width", maxWidth)
+    .attr("x", x)
+    .attr("y", y)
+    .style("font-family", PANEL_FONT)
+    .style("font-size", `${size}px`)
+    .style("fill", colour);
+  lines.forEach((line, idx) => textSel.append("tspan")
+    .attr("x", x)
+    .attr("dy", idx === 0 ? 0 : size * LINE_HEIGHT)
+    .text(line));
+  // Estimate line height in headless mode; text is still emitted for export.
+  return y + Math.max(1, lines.length) * size * LINE_HEIGHT;
 }
 
 /**
@@ -246,7 +276,11 @@ export default function drawSignalPanel(selection: svgBaseType, visualObj: Visua
   const highContrast: boolean = palette.isHighContrast;
   const compact: boolean = settings.panel_periods === "all";
   const style: panelStyle = {
-    labelSize: settings.panel_label_size,
+    // "Alle (kompakt)" must leave enough vertical room for the measurement
+    // explanation and assessment above the statistics table. Reduce label
+    // typography as well as the numbers; otherwise the added introduction
+    // can push later periods below the visible panel.
+    labelSize: settings.panel_label_size * (compact ? 0.75 : 1),
     numberSize: settings.panel_font_size * (compact ? COMPACT_SCALE : 1),
     textColour: highContrast ? palette.foregroundColour : TITLE_COLOUR,
     labelColour: highContrast ? palette.foregroundColour : LABEL_COLOUR,
@@ -296,88 +330,100 @@ export default function drawSignalPanel(selection: svgBaseType, visualObj: Visua
   }
 
   const labelLine: number = style.labelSize * LINE_HEIGHT;
+  const rowGap: number = compact ? 2 : ROW_GAP;
   const rowHeight: number = Math.max(style.numberSize, 2 * labelLine);
   const blockHeight = (block: signalPanelBlock): number => {
     return (block.heading !== null ? labelLine + 2 : 0)
            + labelLine + 4
-           + block.rows.length * (rowHeight + ROW_GAP);
+           + block.rows.length * (rowHeight + rowGap);
   };
+  // Keep a small reserved strip at the bottom for the chart-help icon.
+  const panelContentBottom: number = svgHeight - 34;
+  const fits = (bottom: number): boolean => bottom <= panelContentBottom;
+  const panelTextSize: number = Math.max(7.5, Math.min(style.labelSize, 10));
+  const textGap: number = panelTextSize * 0.65;
+  // Match the description width to the complete table width, using the
+  // right edge of the final (actual) number column as the shared boundary.
+  const textWidth: number = Math.max(0, columns.actualX + columns.columnWidth / 2 - left);
 
-  // Rows are only drawn while they fit inside the SVG: the clip-path hides
-  // overflow visually, but the overflow check in visual.ts would still see
-  // it and shrink the plot. The first block is drawn row by row so a short
-  // tile still shows what it can; later blocks are all-or-nothing so a
-  // period never appears as a heading with no numbers under it.
-  const fits = (bottom: number): boolean => bottom <= svgHeight;
+  // The process assessment is shown in the panel. General chart guidance
+  // remains available from the help icon.
+  let runHelpText: string = "";
+  if (assessment !== null) {
+    const sections: string[] = assessment.text.split("\n\n");
+    const assessmentIntro: string = sections[1] ?? "";
+    runHelpText = sections.find(section => section.startsWith("OM RUN-CHARTS")) ?? "";
+
+    // The title is followed directly by the assessment heading. The
+    // description uses the same full width as the statistics table below.
+    cursor += textGap;
+    if (fits(cursor + labelLine)) {
+      appendText(panel, "VURDERING", left, cursor + style.labelSize,
+        style.labelSize, style.textColour, "start").style("font-weight", "bold");
+      cursor += labelLine + 2;
+    }
+    const statusSize: number = Math.max(10, Math.min(style.numberSize, 18));
+    if (fits(cursor + statusSize * 1.5)) {
+      const statusColours: Record<string, string> = {
+        "Reagér": "#C62828", "Studér": "#B7791F", "Observér": "#2E7D32"
+      };
+      const fill: string = highContrast ? palette.foregroundColour
+        : (statusColours[assessment.status] ?? HEADER_COLOUR);
+      const textColour: string = highContrast ? palette.backgroundColour : SIGNAL_TEXT_COLOUR;
+      const statusGroup = panel.append("g").classed("process-assessment", true);
+      const statusText = appendText(statusGroup, assessment.status.toUpperCase(), left + 7,
+        cursor + statusSize, statusSize, textColour, "start").style("font-weight", "bold");
+      const statusWidth: number = measureText(statusText,
+        assessment.status.length * statusSize * CHAR_WIDTH, style.headless);
+      statusGroup.insert("rect", () => statusText.node())
+        .attr("x", left).attr("y", cursor + 1)
+        .attr("width", Math.min(right - left, statusWidth + 14))
+        .attr("height", statusSize * 1.35).attr("rx", 2).style("fill", fill);
+      cursor += statusSize * 1.35 + textGap;
+    }
+    if (assessmentIntro !== "" && fits(cursor + panelTextSize * LINE_HEIGHT)) {
+      cursor = appendWrappedText(panel, assessmentIntro, left, cursor + panelTextSize,
+        textWidth, panelTextSize, style.labelColour) + textGap;
+    }
+
+  }
+
+  // The former run-chart footer is now available from the help icon. The icon
+  // is kept visible even if the series is too short for a process assessment.
+  const helpText: string = inputSettings.spc.chart_type === "run" && runHelpText !== ""
+    ? runHelpText
+    : chartTypeHelp(inputSettings.spc.chart_type);
+  const helpX: number = right - 16;
+  const helpY: number = svgHeight - 16;
+  const help = panel.append("g").classed("chart-type-help", true)
+    .attr("transform", `translate(${helpX},${helpY})`)
+    .style("cursor", "help");
+  help.append("title").text(helpText);
+  help.append("circle").attr("r", 14).style("fill", "none")
+    .style("stroke", style.labelColour).style("stroke-width", 2);
+  help.append("text").attr("text-anchor", "middle").attr("y", 6.4)
+    .style("font-family", PANEL_FONT).style("font-size", "20px")
+    .style("font-weight", "bold").style("fill", style.labelColour).text("?");
+
+  // Statistics table follows the process assessment.
   for (let b: number = 0; b < blocks.length; b++) {
     const block: signalPanelBlock = blocks[b];
-    if (b > 0 && !fits(cursor + blockHeight(block))) {
-      break;
-    }
+    if (b > 0 && !fits(cursor + blockHeight(block))) break;
     if (block.heading !== null) {
       if (!fits(cursor + labelLine)) break;
       appendText(panel, block.heading, left, cursor + style.labelSize,
-                 style.labelSize, style.labelColour, "start")
-        .style("font-weight", "bold");
+        style.labelSize, style.labelColour, "start").style("font-weight", "bold");
       cursor += labelLine + 2;
     }
     if (!fits(cursor + labelLine)) break;
     drawColumnHeaders(panel, settings, cursor + style.labelSize, columns, style);
     cursor += labelLine + 4;
-
     for (const row of block.rows) {
       if (!fits(cursor + rowHeight)) break;
       drawRow(panel, row, cursor + rowHeight / 2, columns, style);
-      cursor += rowHeight + ROW_GAP;
+      cursor += rowHeight + rowGap;
     }
-    cursor += ROW_GAP;
+    cursor += rowGap;
   }
 
-  // Samlet vurdering placeres under SPC-nøgletallene i samme højre panel.
-  // Hele forklaringen ligger i SVG-titlen, så den er tilgængelig som tooltip
-  // uden at optage den begrænsede højde i visualiseringen.
-  if (assessment !== null) {
-    const assessmentGap: number = style.labelSize * 1.5;
-    const headingSize: number = Math.max(9, style.labelSize);
-    const statusSize: number = Math.max(10, style.numberSize);
-    const subtitle: string = assessment.text.split("\n")[1] ?? "";
-    cursor += assessmentGap;
-    if (fits(cursor + headingSize * LINE_HEIGHT)) {
-      appendText(panel, "PROCESVURDERING", left, cursor + headingSize,
-                 headingSize, style.textColour, "start")
-        .style("font-weight", "bold");
-      cursor += headingSize * LINE_HEIGHT + 3;
-    }
-    if (fits(cursor + statusSize * 1.5)) {
-      const statusColours: Record<string, string> = {
-        "Reagér": "#C62828",
-        "Studér": "#B7791F",
-        "Observér": "#2E7D32"
-      };
-      const fill: string = highContrast ? palette.foregroundColour
-                                        : (statusColours[assessment.status] ?? HEADER_COLOUR);
-      const textColour: string = highContrast ? palette.backgroundColour : SIGNAL_TEXT_COLOUR;
-      const statusGroup = panel.append("g").classed("process-assessment", true);
-      statusGroup.append("title").text(assessment.text);
-      const statusText = appendText(statusGroup, assessment.status.toUpperCase(),
-                                    left + 7, cursor + statusSize, statusSize,
-                                    textColour, "start")
-        .style("font-weight", "bold");
-      const statusWidth: number = measureText(statusText,
-        assessment.status.length * statusSize * CHAR_WIDTH, style.headless);
-      statusGroup.insert("rect", () => statusText.node())
-        .attr("x", left)
-        .attr("y", cursor + 1)
-        .attr("width", Math.min(right - left, statusWidth + 14))
-        .attr("height", statusSize * 1.35)
-        .attr("rx", 2)
-        .style("fill", fill);
-      cursor += statusSize * 1.35 + 5;
-    }
-    if (subtitle !== "" && fits(cursor + style.labelSize * LINE_HEIGHT)) {
-      const subtitleText = appendText(panel, subtitle, left,
-        cursor + style.labelSize, style.labelSize, style.labelColour, "start");
-      fitText(subtitleText, right - left, style.headless);
-    }
-  }
 }

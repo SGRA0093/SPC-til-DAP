@@ -54,6 +54,39 @@ describe("Signal panel", () => {
     expect(bbox.y + bbox.height).toBeLessThanOrEqual(500);
   });
 
+  it("shows the assessment directly after the panel title and omits the natural-variation statistics paragraph", () => {
+    render(visual, 800, 500);
+    const texts: string[] = Array.from(svg().querySelectorAll(".signal-panel text"))
+      .map(t => t.textContent ?? "");
+    const titleIndex = texts.indexOf("STATISTISK PROCESKONTROL (SPC)");
+    const assessmentIndex = texts.indexOf("VURDERING");
+    expect(assessmentIndex).toBe(titleIndex + 1);
+    expect(texts.some(text => text.includes("Faktisk / Forventet"))).toBe(false);
+    expect(texts.some(text => text.includes("Længste forløb"))).toBe(false);
+    const description = svg().querySelector(".signal-panel .assessment-description") as SVGTextElement;
+    expect(description).toBeTruthy();
+
+    // The paragraph's wrap width must run from the panel title's left edge
+    // to the right edge of the table's final (actual) number column.
+    const panelTexts = Array.from(svg().querySelectorAll(".signal-panel text"));
+    const title = panelTexts.find(text => text.textContent === "STATISTISK PROCESKONTROL (SPC)")!;
+    const expectedHeader = panelTexts.find(text => text.textContent === "FORVENTET")!;
+    const actualHeader = panelTexts.find(text => text.textContent === "FAKTISK")!;
+    const expectedX = Number(expectedHeader.getAttribute("x"));
+    const actualX = Number(actualHeader.getAttribute("x"));
+    const tableRight = actualX + (actualX - expectedX) / 2;
+    const expectedWidth = tableRight - Number(title.getAttribute("x"));
+    expect(Number(description.getAttribute("data-wrap-width"))).toBeCloseTo(expectedWidth, 4);
+  });
+
+  it("renders a double-sized chart help icon", () => {
+    render(visual, 800, 500);
+    const circle = svg().querySelector(".signal-panel .chart-type-help circle");
+    const question = svg().querySelector(".signal-panel .chart-type-help text");
+    expect(circle?.getAttribute("r")).toBe("14");
+    expect(question?.style.fontSize).toBe("20px");
+  });
+
   it("shows the newest period with a heading and a signal box", () => {
     render(visual, 800, 500);
     const texts: string[] = Array.from(svg().querySelectorAll(".signal-panel text"))

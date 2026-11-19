@@ -10,7 +10,7 @@ import { buildAssessmentText } from "../../src/Functions/assessmentText";
 
 const stableBase: assessmentInput = {
   n_points: 24, long_run_signal: false, few_crossings_signal: false,
-  centerline: 80, latest: 82, target: 85, operator: ">="
+  n_beyond_limits: 0, centerline: 80, latest: 82, target: 85, operator: ">="
 };
 const unstableBase: assessmentInput = { ...stableBase, few_crossings_signal: true };
 
@@ -45,7 +45,7 @@ describe("assessProcess — ustabil proces", () => {
   it("udløses af en lang serie lige så vel som af for få kryds", () => {
     const a = assessProcess({ ...stableBase, long_run_signal: true, latest: 70 })!;
     expect(a.status).toBe("reagér");
-    expect(a.reasons).toEqual({ few_crossings: false, long_run: true });
+    expect(a.reasons).toEqual({ few_crossings: false, long_run: true, beyond_limits: false });
   });
 
   it("falder tilbage til Studér uden retning, frem for at gætte", () => {
@@ -57,6 +57,14 @@ describe("assessProcess — ustabil proces", () => {
   it("falder tilbage til Studér, når seneste punkt ligger på centerlinjen", () => {
     const a = assessProcess({ ...unstableBase, latest: 80 })!;
     expect(a.case).toBe("unstable_unknown_direction");
+  });
+
+  it("behandler punkter uden for kontrolgrænserne som et ustabilitetssignal", () => {
+    const a = assessProcess({ ...stableBase, n_beyond_limits: 2 })!;
+    expect(a.stable).toBe(false);
+    expect(a.status).toBe("studér");
+    expect(a.case).toBe("unstable_beyond_limits");
+    expect(a.reasons.beyond_limits).toBe(true);
   });
 });
 
@@ -104,28 +112,61 @@ describe("assessProcess — for kort serie", () => {
 describe("buildAssessmentText", () => {
   const ctx = {
     n_points: 24, longest_run: 12, longest_run_max: 7, n_crossings: 3, n_crossings_min: 8,
-    centerline_text: "80,0%", target_text: "85,0%"
+    n_beyond_limits: 0, centerline_text: "80,0%", target_text: "85,0%"
   };
 
   it("nævner begge årsager, når begge regler er brudt", () => {
     const a = assessProcess({ ...unstableBase, long_run_signal: true, latest: 70 })!;
     const text = buildAssessmentText(a, ctx);
     expect(text).toContain("VURDERING: REAGÉR");
-    expect(text).toContain("for få (3) kryds på tværs af medianen og mindst ét langt forløb på 12 enkeltmålinger");
+    expect(text).toContain("for få (3) kryds på tværs af medianen og mindst ét langt forløb på (12) enkeltmålinger");
   });
 
   it("fletter median og mål ind, når målet ikke er nået", () => {
     const a = assessProcess({ ...stableBase })!;
     const text = buildAssessmentText(a, ctx);
     expect(text).toContain("VURDERING: STUDÉR");
-    expect(text).toContain("median (80,0%) opnår imidlertid ikke udviklingsmålet på 85,0%");
+    expect(text).toContain("median (80,0%) opnår imidlertid ikke udviklingsmålet på (85,0%)");
   });
 
-  it("viser faktisk mod forventet i statistikblokken", () => {
+  it("udelader statistikblokken med faktisk mod forventet naturlig variation", () => {
     const text = buildAssessmentText(assessProcess({ ...stableBase })!, ctx);
-    expect(text).toContain("• Længste forløb: 12 (forventet <= 7)");
-    expect(text).toContain("• Antal kryds: 3 (forventet >= 8)");
-    expect(text).toContain("* ved en tidsserie på 24 målinger.");
+    expect(text).not.toContain("Faktisk / Forventet v. naturlig variation");
+    expect(text).not.toContain("Længste forløb:");
+    expect(text).not.toContain("Antal kryds:");
+  });
+
+  it("nævner antal punkter uden for 99%-grænserne i vurderingen", () => {
+    const a = assessProcess({ ...stableBase, n_beyond_limits: 2 })!;
+    const text = buildAssessmentText(a, { ...ctx, n_beyond_limits: 2 });
+    expect(text).toContain("(2) punkter ligger uden for 99%-kontrolgrænserne");
+    expect(text).toContain("Punkter uden for 99%-kontrolgrænserne");
+  });
+
+  it("sætter altid tal i diagramforklaringen i parentes", () => {
+    const runAssessment = assessProcess({ ...unstableBase, long_run_signal: true, latest: 70 })!;
+    const runText = buildAssessmentText(runAssessment, ctx);
+    expect(runText).toContain("for få (3) kryds");
+    expect(runText).toContain("langt forløb på (12) enkeltmålinger");
+
+    const beyondAssessment = assessProcess({ ...stableBase, n_beyond_limits: 2 })!;
+    const beyondText = buildAssessmentText(beyondAssessment, { ...ctx, n_beyond_limits: 2 });
+    expect(beyondText).toContain("da (2) punkter ligger uden for 99%-kontrolgrænserne");
+
+    const targetText = buildAssessmentText(assessProcess({ ...stableBase })!, ctx);
+    expect(targetText).toContain("udviklingsmålet på (85,0%)");
+  });
+
+  it("bruger en generisk diagramformulering frem for altid at nævne Run-chart", () => {
+    const text = buildAssessmentText(assessProcess({ ...stableBase })!, ctx);
+    expect(text).toContain("Diagrammet viser en stabil proces");
+    expect(text).not.toContain("Run-charten");
+  });
+
+  it("udelader kontrolgrænsetallet for et seriediagram uden kontrolgrænser", () => {
+    const text = buildAssessmentText(assessProcess({ ...stableBase, n_beyond_limits: null })!,
+      { ...ctx, n_beyond_limits: null });
+    expect(text).not.toContain("99%-kontrolgrænserne");
   });
 
   it("bruger 'centerlinjen' i stedet for 'medianen' uden for seriediagrammer", () => {
@@ -137,7 +178,7 @@ describe("buildAssessmentText", () => {
   it("skelner mellem mål og intet mål i Observér", () => {
     const met = buildAssessmentText(assessProcess({ ...stableBase, centerline: 90 })!, ctx);
     const none = buildAssessmentText(assessProcess({ ...stableBase, target: undefined })!, ctx);
-    expect(met).toContain("opfylder udviklingsmålet på 85,0%");
+    expect(met).toContain("opfylder udviklingsmålet på (85,0%)");
     expect(none).toContain("Da der ikke er opsat et udviklingsmål");
   });
 });
