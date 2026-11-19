@@ -20,14 +20,34 @@ jobs:
     - name: Label visuals as 'Development'
       run: |
         set -euo pipefail
-        # Fail loudly rather than shipping a dev build under the production
-        # guid if these ever drift out of sync with pbiviz.json again.
-        grep -q '"name":"DAPSPC"' pbiviz.json
-        grep -q '"displayName":"SPC til DAP"' pbiviz.json
-        grep -q '"guid":"DAPSPC"' pbiviz.json
-        sed -i 's/"name":"DAPSPC"/"name":"DAPSPCDEV"/g' pbiviz.json
-        sed -i 's/"displayName":"SPC til DAP"/"displayName":"SPC til DAP (Dev)"/g' pbiviz.json
-        sed -i 's/"guid":"DAPSPC"/"guid":"DAPSPCDEV"/g' pbiviz.json
+        # Parse and update the JSON structurally so whitespace/formatting
+        # changes in pbiviz.json cannot break this workflow.
+        node <<'NODE'
+        const fs = require("node:fs");
+        const file = "pbiviz.json";
+        const config = JSON.parse(fs.readFileSync(file, "utf8"));
+
+        const expected = {
+          name: "DAPSPC",
+          displayName: "SPC til DAP",
+          guid: "DAPSPC",
+        };
+
+        for (const [key, value] of Object.entries(expected)) {
+          if (config.visual?.[key] !== value) {
+            throw new Error(
+              `Expected visual.${key} to be ${JSON.stringify(value)}, ` +
+              `but found ${JSON.stringify(config.visual?.[key])}`,
+            );
+          }
+        }
+
+        config.visual.name = "DAPSPCDEV";
+        config.visual.displayName = "SPC til DAP (Dev)";
+        config.visual.guid = "DAPSPCDEV";
+
+        fs.writeFileSync(file, `${JSON.stringify(config, null, 2)}\n`);
+        NODE
       shell: bash
 
     - name: Build
