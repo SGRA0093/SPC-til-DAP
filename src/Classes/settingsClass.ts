@@ -30,6 +30,15 @@ const hiddenCards: readonly settingsModelKeys[] = ["labels"] as const;
 // (se drawLines), så en valgt linjetype ville ikke have nogen virkning.
 const hiddenSettings: readonly string[] = ["lines.type_target"] as const;
 
+// Indstillinger, der kun har virkning, når en anden er slået til. De vises
+// stadig, men er gråtonede, så man kan se, at de hører til den anden.
+//
+// "signal_panel.panel_show_assessment_text": forklaringen står under
+// vurderingen og vises ikke uden den.
+const dependentSettings: Readonly<Record<string, string>> = {
+  "signal_panel.panel_show_assessment_text": "panel_show_assessment"
+} as const;
+
 // Re-declare enum to avoid importing powerbi module everywhere settingsClass is used
 const VisualEnumerationInstanceKinds = {
   Constant: 1 << 0 as powerbi.VisualEnumerationInstanceKinds.Rule,
@@ -189,6 +198,11 @@ export default class settingsClass {
 
           // Info-ikon ved indstillingens navn. Kun de indstillinger, der selv
           // bærer en description, får et — de øvrige slices er uændrede.
+          const dependsOn: string | undefined = dependentSettings[`${currCardName}.${String(currSettingName)}`];
+          if (dependsOn !== undefined && !getNested(this.settings[0], currCardName, dependsOn as any)) {
+            curr_slice.disabled = true;
+          }
+
           if ("description" in currSettings[currSettingName]) {
             curr_slice.description = currSettings[currSettingName].description as string;
           }

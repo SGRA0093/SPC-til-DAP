@@ -19,6 +19,18 @@ const signalPanelSettings = {
       panel_label_size: numberOption("Etiketstørrelse", 9.5, { min: 4, max: 30 }),
       panel_signal_colour: colourOption("Signalfremhævning", "signal_box")
     },
+    "Vurdering": {
+      // Reagér/Studér/Observér for den seneste periode, med forklaringen
+      // under. Forklaringen hører til vurderingen og kan ikke vises uden den.
+      panel_show_assessment: {
+        ...toggleOption("Vis vurdering", true),
+        description: "Viser vurderingen (Reagér, Studér eller Observér) øverst i signalpanelet."
+      },
+      panel_show_assessment_text: {
+        ...toggleOption("Vis forklaring under vurderingen", true),
+        description: "Den længere forklaringstekst under statusfeltet. Kan kun ændres, når Vis vurdering er slået til."
+      }
+    },
     "Etiketter": {
       label_expected: textOption("Kolonne: forventet", "Forventet"),
       label_actual: textOption("Kolonne: faktisk", "Faktisk"),

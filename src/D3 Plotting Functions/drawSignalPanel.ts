@@ -234,7 +234,7 @@ export default function drawSignalPanel(selection: svgBaseType, visualObj: Visua
     ? buildSignalPanelBlocks(perGroupStats, settings, enabled)
     : [];
 
-  const assessment = visualObj.plotProperties.showSignalPanel
+  const assessment = visualObj.plotProperties.showSignalPanel && settings.panel_show_assessment
     ? visualObj.viewModel.getLatestProcessAssessment()
     : null;
   if (blocks.length === 0 && assessment === null) {
@@ -385,7 +385,8 @@ export default function drawSignalPanel(selection: svgBaseType, visualObj: Visua
         .attr("height", statusSize * 1.35).attr("rx", 2).style("fill", fill);
       cursor += statusSize * 1.35 + textGap;
     }
-    if (assessmentIntro !== "" && fits(cursor + panelTextSize * LINE_HEIGHT)) {
+    if (settings.panel_show_assessment_text && assessmentIntro !== ""
+        && fits(cursor + panelTextSize * LINE_HEIGHT)) {
       cursor = appendWrappedText(panel, assessmentIntro, left, cursor + panelTextSize,
         textWidth, panelTextSize, style.labelColour) + textGap;
     }

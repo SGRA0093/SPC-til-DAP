@@ -132,6 +132,12 @@
         "panel_show_n_useful": {
           "type" : { "bool" : true }
         },
+        "panel_show_assessment": {
+          "type" : { "bool" : true }
+        },
+        "panel_show_assessment_text": {
+          "type" : { "bool" : true }
+        },
         "panel_title": {
           "type" : { "text" : true }
         },

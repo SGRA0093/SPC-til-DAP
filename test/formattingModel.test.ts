@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import settingsClass from "../src/Classes/settingsClass";
 import buildDataView from "./helpers/buildDataView";
+import { defaultSettings } from "../src/settings";
 
 // Proves the FormattingModel produced by settingsClass.getFormattingModel()
 // includes the Signal Detection group with both toggles. If this passes but
@@ -82,10 +83,46 @@ describe("FormattingModel — Signal Panel card", () => {
             (g.slices ?? []).map((s: any) => s.control?.properties?.descriptor?.propertyName));
 
         ["show_panel", "panel_width", "panel_hide_below_width", "panel_periods",
-         "panel_show_n_useful", "label_longest_run", "label_crossings",
+         "panel_show_n_useful", "panel_show_assessment",
+         "panel_show_assessment_text", "label_longest_run", "label_crossings",
          "label_beyond_limits", "label_n_useful", "ttip_show_signals",
          "ttip_label_expected"].forEach(name => {
             expect(props).toContain(name);
         });
+    });
+});
+
+// Forklaringen under vurderingen hører til vurderingen: er vurderingen slået
+// fra, vises knappen gråtonet frem for at forsvinde.
+describe("FormattingModel — Vurdering toggles", () => {
+    const slicesWith = (panelOverrides: Record<string, unknown>): any[] => {
+        const base = JSON.parse(JSON.stringify(defaultSettings));
+        Object.assign(base.signal_panel, panelOverrides);
+        const settings = new settingsClass();
+        settings.update(buildDataView({
+            key: ["A", "B", "C", "D", "E"],
+            numerators: [1, 2, 3, 4, 5]
+        }, base), [[0, 5]]);
+        const card = settings.getFormattingModel().cards.find(c => c.uid === "signal_panel_card_uid");
+        return (card?.groups ?? []).flatMap(g => g.slices ?? []);
+    };
+    const find = (slices: any[], name: string): any =>
+        slices.find(s => s.control?.properties?.descriptor?.propertyName === name);
+
+    it("offers both toggles, on by default", () => {
+        const slices = slicesWith({});
+        expect(find(slices, "panel_show_assessment").control.properties.value).toBe(true);
+        expect(find(slices, "panel_show_assessment_text").control.properties.value).toBe(true);
+    });
+
+    it("keeps the explanation toggle usable while the assessment is on", () => {
+        expect(find(slicesWith({}), "panel_show_assessment_text").disabled).toBeFalsy();
+        expect(find(slicesWith({}), "panel_show_assessment").disabled).toBeFalsy();
+    });
+
+    it("greys out the explanation toggle when the assessment is off", () => {
+        const slices = slicesWith({ panel_show_assessment: false });
+        expect(find(slices, "panel_show_assessment_text").disabled).toBe(true);
+        expect(find(slices, "panel_show_assessment").disabled).toBeFalsy();
     });
 });

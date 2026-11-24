@@ -263,6 +263,42 @@ describe("Signal panel", () => {
       .toBe(visual.viewModel.inputSettings.settings[0].canvas.right_padding);
   });
 
+  it("shows the assessment and its explanation by default", () => {
+    render(visual, 800, 500);
+    const texts: string[] = Array.from(svg().querySelectorAll(".signal-panel text"))
+                                 .map(t => t.textContent ?? "");
+    expect(texts).toContain("VURDERING");
+    expect(svg().querySelector(".signal-panel .process-assessment")).toBeTruthy();
+    expect(svg().querySelector(".signal-panel .assessment-description")).toBeTruthy();
+  });
+
+  it("drops the whole assessment, but keeps the table, when Vis vurdering is off", () => {
+    render(visual, 800, 500, { panel_show_assessment: false });
+    const texts: string[] = Array.from(svg().querySelectorAll(".signal-panel text"))
+                                 .map(t => t.textContent ?? "");
+    expect(texts).not.toContain("VURDERING");
+    expect(svg().querySelector(".signal-panel .process-assessment")).toBeNull();
+    expect(svg().querySelector(".signal-panel .assessment-description")).toBeNull();
+    expect(texts).toContain("FORVENTET");
+    expect(texts).toContain("STATISTISK PROCESKONTROL (SPC)");
+  });
+
+  it("an explanation setting left on does not bring the assessment back", () => {
+    render(visual, 800, 500, { panel_show_assessment: false, panel_show_assessment_text: true });
+    expect(svg().querySelector(".signal-panel .process-assessment")).toBeNull();
+    expect(svg().querySelector(".signal-panel .assessment-description")).toBeNull();
+  });
+
+  it("drops only the explanation when Vis forklaring er slået fra", () => {
+    render(visual, 800, 500, { panel_show_assessment_text: false });
+    const texts: string[] = Array.from(svg().querySelectorAll(".signal-panel text"))
+                                 .map(t => t.textContent ?? "");
+    expect(texts).toContain("VURDERING");
+    expect(svg().querySelector(".signal-panel .process-assessment")).toBeTruthy();
+    expect(svg().querySelector(".signal-panel .assessment-description")).toBeNull();
+    expect(texts).toContain("FORVENTET");
+  });
+
   // afterAll, not inline: a removal in the describe body runs at collection
   // time and the bounding-box checks above need the SVG attached.
   afterAll(() => element.remove());
