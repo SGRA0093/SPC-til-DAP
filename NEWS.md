@@ -2,6 +2,14 @@
 
 ## Ikke udgivet
 
+## 1.0.0.4
+
+### Ændringer siden v1.0.0.3
+
+* Improve hierarchical month and week axis labels
+* Improve assessment panel and chart help
+* Større forklaringstekst i vurderingen (12 px) og automatiske release-noter
+
 ## 1.0.0.3
 
 ### Akser
