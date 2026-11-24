@@ -2,6 +2,12 @@
 
 ## Ikke udgivet
 
+## 1.0.0.5
+
+### Ændringer siden v1.0.0.4
+
+* Knapper i Format til at slå vurderingen og dens forklaring fra og til
+
 ## 1.0.0.4
 
 ### Ændringer siden v1.0.0.3
