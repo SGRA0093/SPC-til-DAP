@@ -13,6 +13,8 @@ type textSelectionType = d3.Selection<SVGTextElement, unknown, null, undefined>;
 // font so it reads as part of the report chrome rather than of the chart.
 const PANEL_FONT: string = "'Segoe UI', wf_segoe-ui_normal, helvetica, arial, sans-serif";
 const TITLE_SIZE: number = 10;
+// Size of the explanatory paragraph under the assessment status.
+const ASSESSMENT_TEXT_SIZE: number = 12;
 
 // Fixed greys rather than settings: the layout relies on the numbers being
 // lighter than the labels, and a signal inverting grey-on-white to
@@ -340,8 +342,10 @@ export default function drawSignalPanel(selection: svgBaseType, visualObj: Visua
   // Keep a small reserved strip at the bottom for the chart-help icon.
   const panelContentBottom: number = svgHeight - 34;
   const fits = (bottom: number): boolean => bottom <= panelContentBottom;
-  const panelTextSize: number = Math.max(7.5, Math.min(style.labelSize, 10));
-  const textGap: number = panelTextSize * 0.65;
+  // The assessment paragraph has a fixed size. The gaps around the heading and
+  // the status badge keep following the label size, as before.
+  const panelTextSize: number = ASSESSMENT_TEXT_SIZE;
+  const textGap: number = Math.max(7.5, Math.min(style.labelSize, 10)) * 0.65;
   // Match the description width to the complete table width, using the
   // right edge of the final (actual) number column as the shared boundary.
   const textWidth: number = Math.max(0, columns.actualX + columns.columnWidth / 2 - left);

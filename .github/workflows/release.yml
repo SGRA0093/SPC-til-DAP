@@ -1,14 +1,28 @@
 name: "Release"
 
-# Production release. Run this workflow manually from main and enter the
-# four-part Power BI version once. The workflow updates manifests and NEWS,
-# verifies, builds, commits, tags, and publishes the production visual.
+# Production release. Run this workflow manually from main and pick which part
+# of the four-part Power BI version (major.minor.patch.build) to count up. The
+# workflow works out the next version from pbiviz.json, updates manifests and
+# NEWS, verifies, builds, commits, tags, and publishes the production visual.
+# Release notes come from "## Ikke udgivet" in NEWS.md when it has content;
+# when it is empty they are generated from the commits since the previous tag.
 on:
   workflow_dispatch:
     inputs:
-      version:
-        description: "Release version (e.g. 1.0.0.3; four numeric parts, without v)"
+      bump:
+        description: "Hvilket niveau tælles op? Fra 1.0.0.3 giver build 1.0.0.4, patch 1.0.1.0, minor 1.1.0.0 og major 2.0.0.0"
         required: true
+        type: choice
+        default: build
+        options:
+          - build
+          - patch
+          - minor
+          - major
+      version:
+        description: "Valgfri: eksakt version (fx 1.0.0.5). Kun til at genoptage en delvist gennemført release. Lad stå tom ellers"
+        required: false
+        default: ""
         type: string
 
 permissions:
@@ -34,10 +48,11 @@ jobs:
         node-version: 24
         cache: 'npm'
 
-    - name: Validate version, prepare files, or resume existing tag
+    - name: Work out version, prepare files, or resume existing tag
       id: prepare
       env:
-        RELEASE_VERSION: ${{ inputs.version }}
+        INPUT_VERSION: ${{ inputs.version }}
+        BUMP: ${{ inputs.bump }}
       run: |
         set -euo pipefail
 
@@ -46,16 +61,42 @@ jobs:
           exit 1
         fi
 
-        if [[ ! "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-          echo "::error::Version must have four numeric parts, e.g. 1.0.0.3 (without a leading v)."
-          exit 1
-        fi
-
         git fetch origin main --tags
         if [[ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]]; then
           echo "::error::main changed after this workflow was queued. Start Release again from the latest main."
           exit 1
         fi
+
+        # An explicit version is only for resuming a half-finished release.
+        # Otherwise the next version is counted up from pbiviz.json.
+        if [[ -n "${INPUT_VERSION// /}" ]]; then
+          RELEASE_VERSION="${INPUT_VERSION// /}"
+          echo "Using the explicit version ${RELEASE_VERSION}."
+        else
+          base_version="$(node -p "require('./pbiviz.json').visual.version")"
+          if [[ ! "$base_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::pbiviz.json has version '${base_version}', which does not have four numeric parts."
+            exit 1
+          fi
+          IFS=. read -r v_major v_minor v_patch v_build <<< "$base_version"
+          case "$BUMP" in
+            major) RELEASE_VERSION="$((10#$v_major + 1)).0.0.0" ;;
+            minor) RELEASE_VERSION="$((10#$v_major)).$((10#$v_minor + 1)).0.0" ;;
+            patch) RELEASE_VERSION="$((10#$v_major)).$((10#$v_minor)).$((10#$v_patch + 1)).0" ;;
+            build) RELEASE_VERSION="$((10#$v_major)).$((10#$v_minor)).$((10#$v_patch)).$((10#$v_build + 1))" ;;
+            *)
+              echo "::error::Unknown bump '${BUMP}'. Use build, patch, minor or major."
+              exit 1
+              ;;
+          esac
+          echo "Counting up ${BUMP}: ${base_version} -> ${RELEASE_VERSION}."
+        fi
+
+        if [[ ! "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          echo "::error::Version must have four numeric parts, e.g. 1.0.0.3 (without a leading v)."
+          exit 1
+        fi
+        echo "version=${RELEASE_VERSION}" >> "$GITHUB_OUTPUT"
 
         tag="v${RELEASE_VERSION}"
 
@@ -144,6 +185,42 @@ jobs:
           throw new Error(`NEWS.md already contains ${versionHeading}, but manifests are still ${current}. Check the repository before retrying.`);
         }
 
+        // Notes for a release whose "Ikke udgivet" section is empty: the commit
+        // subjects since the previous release tag. Bots, release bookkeeping,
+        // patch files and commits that only touch CI, tests or NEWS are left out.
+        const autoNotes = () => {
+          const { execFileSync } = require('node:child_process');
+          const git = (...args) => execFileSync('git', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+          const tags = git('tag', '--merged', 'HEAD', '--list', 'v[0-9]*.[0-9]*.[0-9]*.[0-9]*', '--sort=-v:refname')
+            .split(/\r?\n/).filter(Boolean);
+          const range = tags.length > 0 ? [`${tags[0]}..HEAD`] : ['-n', '30'];
+          const log = git('log', '--no-merges', '--reverse', '--name-only',
+                          '--pretty=format:%x1e%an%x09%s', ...range);
+          const internal = file => file.startsWith('.github/') || file.startsWith('test/')
+            || file === 'NEWS.md' || file === 'package-lock.json' || file.endsWith('.patch');
+          const seen = new Set();
+          const bullets = [];
+          for (const record of log.split('\x1e').filter(r => r.trim())) {
+            const lines = record.split(/\r?\n/);
+            const tab = lines[0].indexOf('\t');
+            const author = lines[0].slice(0, tab);
+            const subject = lines[0].slice(tab + 1).trim();
+            const files = lines.slice(1).filter(Boolean);
+            if (/\[bot\]$/i.test(author)) continue;
+            if (/^chore: release\b/i.test(subject) || /^Create .+\.patch$/i.test(subject)) continue;
+            if (files.length > 0 && files.every(internal)) continue;
+            const text = subject
+              .replace(/^(feat|fix|chore|docs|refactor|test|ci|build|perf|style)(\([^)]*\))?!?:\s*/i, '')
+              .replace(/^./, c => c.toUpperCase());
+            if (text === '' || seen.has(text)) continue;
+            seen.add(text);
+            bullets.push(`* ${text}`);
+          }
+          if (bullets.length === 0) return '';
+          const heading = tags.length > 0 ? `### Ændringer siden ${tags[0]}` : '### Ændringer';
+          return `${heading}\n\n${bullets.join('\n')}`;
+        };
+
         const unreleasedHeading = /^## Ikke udgivet[ \t]*\r?\n/m;
         const match = unreleasedHeading.exec(news);
         if (!match) throw new Error('NEWS.md must contain a "## Ikke udgivet" section.');
@@ -151,8 +228,12 @@ jobs:
         const remaining = news.slice(bodyStart);
         const nextSection = remaining.search(/^## /m);
         const rawBody = nextSection < 0 ? remaining : remaining.slice(0, nextSection);
-        const body = rawBody.replace(/^\r?\n+/, '').trimEnd();
-        if (!body.trim()) throw new Error('NEWS.md section "Ikke udgivet" is empty. Add release notes before running Release.');
+        let body = rawBody.replace(/^\r?\n+/, '').trimEnd().replace(/[ \t]+$/gm, '');
+        if (!body.trim()) {
+          body = autoNotes();
+          if (!body.trim()) throw new Error('NEWS.md section "Ikke udgivet" is empty and no user-facing commits were found since the previous release tag. Add release notes before running Release.');
+          console.log('NEWS.md section "Ikke udgivet" is empty; generated release notes from commits.');
+        }
 
         const newline = news.includes('\r\n') ? '\r\n' : '\n';
         const tail = nextSection < 0 ? '' : remaining.slice(nextSection).replace(/^\r?\n+/, '');
@@ -195,7 +276,7 @@ jobs:
 
     - name: Extract release notes
       env:
-        RELEASE_VERSION: ${{ inputs.version }}
+        RELEASE_VERSION: ${{ steps.prepare.outputs.version }}
       run: |
         set -euo pipefail
         RELEASE_VERSION="$RELEASE_VERSION" node <<'NODE'
@@ -214,7 +295,7 @@ jobs:
     - name: Commit version and tag, or skip when resuming
       if: steps.prepare.outputs.tag_exists != 'true'
       env:
-        RELEASE_VERSION: ${{ inputs.version }}
+        RELEASE_VERSION: ${{ steps.prepare.outputs.version }}
       run: |
         set -euo pipefail
         tag="v${RELEASE_VERSION}"
@@ -231,7 +312,8 @@ jobs:
         git config user.name "github-actions[bot]"
         git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
         git add pbiviz.json package.json package-lock.json NEWS.md
-        git diff --cached --check
+        # The notes may carry CRLF line endings; that alone is not an error.
+        git -c core.whitespace=cr-at-eol diff --cached --check
         if ! git diff --cached --quiet; then
           git commit -m "chore: release ${tag}"
         fi
@@ -242,7 +324,7 @@ jobs:
     - name: Publish or repair GitHub release
       env:
         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        RELEASE_VERSION: ${{ inputs.version }}
+        RELEASE_VERSION: ${{ steps.prepare.outputs.version }}
       run: |
         set -euo pipefail
         tag="v${RELEASE_VERSION}"
@@ -256,4 +338,11 @@ jobs:
             --notes-file release-notes.md \
             --verify-tag
         fi
+      shell: bash
+
+    - name: Summary
+      env:
+        RELEASE_VERSION: ${{ steps.prepare.outputs.version }}
+      run: |
+        echo "Udgav v${RELEASE_VERSION}" >> "$GITHUB_STEP_SUMMARY"
       shell: bash

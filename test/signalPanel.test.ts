@@ -65,6 +65,7 @@ describe("Signal panel", () => {
     expect(texts.some(text => text.includes("Længste forløb"))).toBe(false);
     const description = svg().querySelector(".signal-panel .assessment-description") as SVGTextElement;
     expect(description).toBeTruthy();
+    expect(description.style.fontSize).toBe("12px");
 
     // The paragraph's wrap width must run from the panel title's left edge
     // to the right edge of the table's final (actual) number column.

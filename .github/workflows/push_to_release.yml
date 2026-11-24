@@ -1,21 +1,31 @@
 name: "Build release"
+
+# Development build. Run manually from any branch; it publishes the packaged
+# visual under the rolling "latest" pre-release, with its own name and GUID so
+# it can sit next to the production visual in Power BI.
 on:
   workflow_dispatch:
+
 permissions:
   contents: write
 
+concurrency:
+  group: development-build
+  cancel-in-progress: false
+
 jobs:
   build-pbiviz-packages:
-    name: "Pre Release"
-    runs-on: "ubuntu-latest"
+    name: "Development build"
+    runs-on: ubuntu-24.04
 
     steps:
     - uses: actions/checkout@v7
 
-    - name: Use Node.js 10.x
+    - name: Setup Node 24
       uses: actions/setup-node@v7
       with:
-        node-version: 24.x
+        node-version: 24
+        cache: 'npm'
 
     - name: Label visuals as 'Development'
       run: |
@@ -50,16 +60,38 @@ jobs:
         NODE
       shell: bash
 
-    - name: Build
-      run: |
-        npm ci
-        npx pbiviz package
+    - name: Install Package Dependencies
+      run: npm ci
 
-    - name : "Create Release"
-      uses: "marvinpinto/action-automatic-releases@latest"
-      with:
-        repo_token: "${{ secrets.GITHUB_TOKEN }}"
-        automatic_release_tag: "latest"
-        prerelease: false
-        title: "Development Build"
-        files: dist/*.pbiviz
+    - name: Run linter
+      run: npx pbiviz lint
+
+    - name: Run unit tests
+      run: |
+        npx playwright install --with-deps chromium
+        npm run test
+
+    - name: Build package
+      run: npx pbiviz package
+
+    # gh instead of the archived marvinpinto/action-automatic-releases. The
+    # old release and its tag are removed first so "latest" always points at
+    # the commit that was just built.
+    - name: Publish development build
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GH_REPO: ${{ github.repository }}
+      run: |
+        set -euo pipefail
+        if gh release view latest >/dev/null 2>&1; then
+          gh release delete latest --cleanup-tag --yes
+        fi
+        if git ls-remote --exit-code --tags origin refs/tags/latest >/dev/null 2>&1; then
+          git push --delete origin latest
+        fi
+        gh release create latest dist/*.pbiviz \
+          --title "Development Build" \
+          --notes "Udviklingsbyg af ${GITHUB_SHA::7} (${GITHUB_REF_NAME})." \
+          --prerelease \
+          --target "$GITHUB_SHA"
+      shell: bash
