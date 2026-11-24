@@ -15,6 +15,10 @@ import getNested from "./getNested"
 export type SettingsValidationT = { status: number, messages: string[][], error?: string };
 export type ConditionalReturnT<T extends settingsValueTypesUnion> = { values: T[] | undefined, validation: SettingsValidationT }
 
+// Runtime defaults (for example the active Power BI theme) are used only when
+// the report has not persisted an explicit value for that setting.
+export type SettingsDefaultOverrides = Record<string, Record<string, unknown>>;
+
 function getSettingValue<T>(settingObject: DataViewObjects, settingGroup: string, settingName: string, defaultValue: T): T {
   const propertyValue: powerbi.DataViewPropertyValue = settingObject?.[settingGroup]?.[settingName];
   if (isNullOrUndefined(propertyValue)) {
@@ -27,7 +31,8 @@ export default function
   extractConditionalFormatting<T extends settingsValueTypesUnion>(categoricalView: DataViewCategorical,
                                                         settingGroupName: string,
                                                         inputSettings: settingsValueType,
-                                                        idxs: number[]): ConditionalReturnT<T> {
+                                                        idxs: number[],
+                                                        defaultOverrides: SettingsDefaultOverrides = {}): ConditionalReturnT<T> {
   if (isNullOrUndefined(categoricalView?.categories)) {
     return { values: undefined, validation: { status: 0, messages: rep(new Array<string>(), 1) } };
   }
@@ -46,7 +51,9 @@ export default function
     const inpObjects = inputCategories.objects ? inputCategories.objects[idxs[i]] : null;
     rtn[i] = Object.fromEntries(
       settingNames.map(settingName => {
-        const defaultSetting = getNested(defaultSettings, settingGroupName as SettingsValueKeys, settingName as SettingsValueNestedKeys);
+        const configuredDefault = getNested(defaultSettings, settingGroupName as SettingsValueKeys, settingName as SettingsValueNestedKeys);
+        const runtimeDefault = defaultOverrides[settingGroupName]?.[settingName];
+        const defaultSetting = (runtimeDefault === undefined ? configuredDefault : runtimeDefault) as typeof configuredDefault;
 
         let extractedSetting = getSettingValue(inpObjects!, settingGroupName, settingName, defaultSetting);
         // PBI passes empty string when clearing conditional formatting

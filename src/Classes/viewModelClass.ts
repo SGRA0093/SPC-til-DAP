@@ -29,18 +29,20 @@ import { default as updateOptionsUndefined, UpdateOptionsValidTypes } from "../F
 
 // powerbi.VisualUpdateType er et bit-flag: Data = 2, Resize = 4, ViewMode = 8,
 // Style = 16, ResizeEnd = 32, All = 62. Power BI sender ofte flere flag samlet,
-// så en test for lighed med Data rammer kun den ene af flere lovlige værdier.
-// Enum'et er `const enum` i API'et og kan ikke importeres som værdi.
+// så både data- og temaændringer testes som bitmasker. Enum'et er `const enum`
+// i API'et og kan ikke importeres som værdi.
 const VISUAL_UPDATE_TYPE_DATA: number = 2;
+const VISUAL_UPDATE_TYPE_STYLE: number = 16;
 
 /**
  * True når opdateringen kan indeholde ændrede data eller indstillinger.
  *
- * Resize alene (4) har ikke Data-bitten sat og skal netop ikke udløse en
- * genberegning — det er hele pointen med at teste på typen.
+ * Resize alene (4) har hverken Data- eller Style-bitten sat og skal netop
+ * ikke udløse en genberegning — det er hele pointen med at teste på typen.
  */
-function updateTouchesData(updateType: number | undefined): boolean {
-  return ((updateType ?? VISUAL_UPDATE_TYPE_DATA) & VISUAL_UPDATE_TYPE_DATA) !== 0;
+function updateTouchesDataOrStyle(updateType: number | undefined): boolean {
+  const flags = updateType ?? VISUAL_UPDATE_TYPE_DATA;
+  return (flags & (VISUAL_UPDATE_TYPE_DATA | VISUAL_UPDATE_TYPE_STYLE)) !== 0;
 }
 
 type LineSettingsKeys = keyof settingsValueType["lines"];
@@ -233,20 +235,17 @@ export default class viewModelClass {
     } else if (updateOptionsStatus === UpdateOptionsValidTypes.MissingNumerators) {
       return { status: false, error: "Ingen tællere angivet." }
     }
-    // The constructor seeds this with an empty object, which is neither null
-    // nor undefined — so the original guard never fired and the palette was
-    // never filled. isHighContrast stayed undefined, leaving every
-    // high-contrast branch in the visual dead. Fill it whenever the host's
-    // palette has not been read yet.
-    if (isNullOrUndefined(this.colourPalette?.isHighContrast)) {
-      this.colourPalette = {
-        isHighContrast: host.colorPalette.isHighContrast,
-        foregroundColour: host.colorPalette.foreground.value,
-        backgroundColour: host.colorPalette.background.value,
-        foregroundSelectedColour: host.colorPalette.foregroundSelected.value,
-        hyperlinkColour: host.colorPalette.hyperlink.value
-      }
-    }
+    // Read the host palette on every update: a report theme can change while
+    // the visual instance remains alive. The first stable key receives the
+    // first dataColors entry from the active report theme.
+    const themePrimaryColour = host.colorPalette.reset().getColor("dapspc-primary").value;
+    this.colourPalette = {
+      isHighContrast: host.colorPalette.isHighContrast,
+      foregroundColour: host.colorPalette.foreground.value,
+      backgroundColour: host.colorPalette.background.value,
+      foregroundSelectedColour: host.colorPalette.foregroundSelected.value,
+      hyperlinkColour: host.colorPalette.hyperlink.value
+    };
 
     this.svgWidth = options.viewport.width;
     this.svgHeight = options.viewport.height;
@@ -280,8 +279,11 @@ export default class viewModelClass {
       }
     }
 
-    if (updateTouchesData(options.type) || this.firstRun) {
-      this.inputSettings.update(options.dataViews[0], idx_per_indicator);
+    if (updateTouchesDataOrStyle(options.type) || this.firstRun) {
+      this.inputSettings.update(options.dataViews[0], idx_per_indicator, {
+        lines: { colour_main: themePrimaryColour },
+        scatter: { colour: themePrimaryColour, colour_outline: themePrimaryColour }
+      });
     }
     if (this.inputSettings.validationStatus.error !== "") {
       res.status = false;
@@ -304,7 +306,7 @@ export default class viewModelClass {
     let invalidData: boolean = false;
 
     // Only re-construct data and re-calculate limits if they have changed
-    if (updateTouchesData(options.type) || this.firstRun) {
+    if (updateTouchesDataOrStyle(options.type) || this.firstRun) {
       // Handle split indexes (only for first indicator in single mode)
       const hasIndicator: boolean = options.dataViews[0].categorical!.categories!.some(d => d.source.roles!.indicator);
       const split_indexes_str: string = <string>(options.dataViews[0]?.metadata?.objects?.split_indexes_storage?.split_indexes) ?? "[]";

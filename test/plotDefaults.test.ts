@@ -41,7 +41,7 @@ function line(element: HTMLElement, group: string) {
 describe("Plottets defaults", () => {
   it("tegner dataserien tyk i temafarve 1", () => {
     const element = render();
-    expect(line(element, "values")).toEqual({ width: "3", colour: "#002555", dash: "10 0" });
+    expect(line(element, "values")).toEqual({ width: "3", colour: "#1D394B", dash: "10 0" });
     element.remove();
   });
 

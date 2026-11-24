@@ -27,8 +27,8 @@ const defaultColours: Record<string, string> = {
   // #C47B00. Et punkt uden for kontrolgrænserne er præcis sådan et: det siger
   // at processen har ændret sig, ikke om ændringen er god.
   beyond_limit: "#C47B00",
-  // Temafarve 1: dataserien, altså det vigtigste i diagrammet.
-  common_cause: "#002555",
+  // Fallback til temaets første datafarve, når visualen bruges uden host-palette.
+  common_cause: "#1D394B",
   // Temafarve 2: kontrolgrænserne. Dæmpet, så serien står forrest.
   limits: "#809bbc",
   // Lys tone af temafarve 2: fladen mellem de to kontrolgrænser. Tegnes

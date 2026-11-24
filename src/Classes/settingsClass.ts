@@ -7,7 +7,7 @@ import { default as settingsModel, defaultSettings, type settingsValueType,
   type settingsModelKeys, type settingsModelType
  } from "../settings";
 import derivedSettingsClass from "./derivedSettingsClass";
-import { type ConditionalReturnT, type SettingsValidationT } from "../Functions/extractConditionalFormatting";
+import { type ConditionalReturnT, type SettingsValidationT, type SettingsDefaultOverrides } from "../Functions/extractConditionalFormatting";
 import getNested from "../Functions/getNested"
 import { FormattingComponent, type MergeUnions, type FormattingComponentKeys } from "../Settings Model/common";
 
@@ -64,7 +64,7 @@ export default class settingsClass {
    *
    * @param inputObjects
    */
-  update(inputView: DataView, groupIdxs: number[][]): void {
+  update(inputView: DataView, groupIdxs: number[][], defaultOverrides: SettingsDefaultOverrides = {}): void {
     this.validationStatus
       = JSON.parse(JSON.stringify({ status: 0, messages: new Array<string[]>(), error: "" }));
 
@@ -83,7 +83,7 @@ export default class settingsClass {
 
     allSettingGroups.forEach((settingGroup) => {
       const condFormatting: ConditionalReturnT<settingsValueTypesUnion>
-        = extractConditionalFormatting(inputView.categorical!, settingGroup, this.settings[0], all_idxs);
+        = extractConditionalFormatting(inputView.categorical!, settingGroup, this.settings[0], all_idxs, defaultOverrides);
 
       if (condFormatting.validation.status !== 0) {
         this.validationStatus.status = condFormatting.validation.status;
@@ -108,7 +108,8 @@ export default class settingsClass {
           (this.settings[idx_idx] as any)[settingGroup][settingName]
             = condFormatting?.values
               ? condFormatting?.values[idx[0]][settingName as keyof settingsValueTypesUnion]
-              : getNested(defaultSettings, settingGroup as SettingsValueKeys, settingName as SettingsValueNestedKeys)
+              : (defaultOverrides[settingGroup]?.[settingName] as any)
+                ?? getNested(defaultSettings, settingGroup as SettingsValueKeys, settingName as SettingsValueNestedKeys)
         })
       })
     })
